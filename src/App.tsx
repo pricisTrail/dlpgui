@@ -96,6 +96,7 @@ interface DownloadItem {
   downloadPath?: string;
   completedAt?: string;
   format?: string;
+  subtitles?: boolean;
   phase?: string; // 'video' | 'audio' | 'merging' | 'processing'
   scheduledFor?: string; // ISO date string for scheduled downloads
 }
@@ -153,6 +154,10 @@ interface PlaylistInfo {
   entries: PlaylistVideo[];
 }
 
+const MAX_LOG_LINES_PER_DOWNLOAD = 300;
+const PROGRESS_UPDATE_INTERVAL_MS = 150;
+const MIN_PROGRESS_DELTA = 0.25;
+
 export default function App() {
   const [url, setUrl] = useState("");
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
@@ -180,6 +185,7 @@ export default function App() {
   const [playlistInfo, setPlaylistInfo] = useState<PlaylistInfo | null>(null);
   const [isFetchingPlaylist, setIsFetchingPlaylist] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const progressUpdateTimesRef = useRef<Record<string, number>>({});
   
   // yt-dlp update state
   const [ytdlpVersion, setYtdlpVersion] = useState<string>("");
@@ -238,28 +244,64 @@ export default function App() {
     initPath();
 
     const unlistenProgress = listen<ProgressPayload>("download-progress", (event) => {
-      setDownloads((prev) =>
-        prev.map((item) =>
-          item.id === event.payload.id
-            ? {
-                ...item,
-                progress: event.payload.percentage,
-                speed: event.payload.speed,
-                eta: event.payload.eta,
-                size: event.payload.size,
-                status: 'downloading',
-                phase: event.payload.phase,
-              }
-            : item
-        )
-      );
+      const now = Date.now();
+      const lastUpdate = progressUpdateTimesRef.current[event.payload.id] ?? 0;
+      const isFinalStage = event.payload.percentage >= 99;
+      if (!isFinalStage && now - lastUpdate < PROGRESS_UPDATE_INTERVAL_MS) return;
+
+      progressUpdateTimesRef.current[event.payload.id] = now;
+
+      setDownloads((prev) => {
+        let changed = false;
+        const next: DownloadItem[] = prev.map((item): DownloadItem => {
+          if (item.id !== event.payload.id) return item;
+
+          const progressChanged = Math.abs(item.progress - event.payload.percentage) >= MIN_PROGRESS_DELTA;
+          const speedChanged = item.speed !== event.payload.speed;
+          const etaChanged = item.eta !== event.payload.eta;
+          const sizeChanged = item.size !== event.payload.size;
+          const phaseChanged = item.phase !== event.payload.phase;
+          const statusChanged = item.status !== 'downloading';
+
+          if (!progressChanged && !speedChanged && !etaChanged && !sizeChanged && !phaseChanged && !statusChanged) {
+            return item;
+          }
+
+          changed = true;
+          return {
+            ...item,
+            progress: event.payload.percentage,
+            speed: event.payload.speed,
+            eta: event.payload.eta,
+            size: event.payload.size,
+            status: 'downloading',
+            phase: event.payload.phase,
+          };
+        });
+        return changed ? next : prev;
+      });
     });
 
     const unlistenLogs = listen<LogPayload>("download-log", (event) => {
+      const message = event.payload.message?.trim();
+      if (!message) return;
+
       setDownloads((prev) => 
         prev.map((item) => 
           item.id === event.payload.id 
-            ? { ...item, logs: [...(item.logs || []), event.payload.message] }
+            ? (() => {
+                const currentLogs = item.logs || [];
+                if (currentLogs[currentLogs.length - 1] === message) {
+                  return item;
+                }
+
+                const nextLogs = [...currentLogs, message];
+                const logs = nextLogs.length > MAX_LOG_LINES_PER_DOWNLOAD
+                  ? nextLogs.slice(-MAX_LOG_LINES_PER_DOWNLOAD)
+                  : nextLogs;
+
+                return { ...item, logs };
+              })()
             : item
         )
       );
@@ -276,6 +318,7 @@ export default function App() {
     });
 
     const unlistenStatus = listen<StatusPayload>("download-status", (event) => {
+      delete progressUpdateTimesRef.current[event.payload.id];
       setDownloads((prev) =>
         prev.map((item) =>
           item.id === event.payload.id
@@ -393,6 +436,7 @@ export default function App() {
       setIsBatchMode(true);
       setFormats([]); // Disable format fetching for batch
       setSelectedFormat("");
+      setWithSubtitles(false); // Batch TXT mode does not support subtitle quality variants
     }
     
     // Reset file input
@@ -422,7 +466,8 @@ export default function App() {
         size: "Unknown",
         logs: [],
         isLogsOpen: false,
-        format: formatToUse
+        format: formatToUse,
+        subtitles: false
       };
 
       setDownloads(prev => [newDownload, ...prev]);
@@ -433,7 +478,7 @@ export default function App() {
           url: batchUrl,
           downloadDir: savePath,
           formatString: formatToUse,
-          subtitles: withSubtitles,
+          subtitles: false,
           useAria2c: useAria2c,
         });
       } catch (error) {
@@ -457,6 +502,7 @@ export default function App() {
     
     const urlsToSchedule = isBatchMode ? batchUrls : [url];
     const formatToUse = isBatchMode ? defaultFormat : (selectedFormat || defaultFormat);
+    const subtitlesToUse = isBatchMode ? false : withSubtitles;
 
     for (const scheduleUrl of urlsToSchedule) {
       const id = Math.random().toString(36).substring(7);
@@ -473,6 +519,7 @@ export default function App() {
         logs: [],
         isLogsOpen: false,
         format: formatToUse,
+        subtitles: subtitlesToUse,
         scheduledFor: scheduledTime
       };
 
@@ -510,7 +557,7 @@ export default function App() {
                   url: item.url,
                   downloadDir: savePath,
                   formatString: item.format || defaultFormat,
-                  subtitles: withSubtitles,
+                  subtitles: item.subtitles ?? withSubtitles,
                   useAria2c: useAria2c,
                 });
               } catch (error) {
@@ -536,6 +583,7 @@ export default function App() {
       setIsFetchingPlaylist(true);
       setFormats([]);
       setSelectedFormat("");
+      setWithSubtitles(false);
       setFormatsError("");
       
       try {
@@ -558,6 +606,7 @@ export default function App() {
     setPlaylistInfo(null);
     setFormats([]);
     setSelectedFormat("");
+    setWithSubtitles(false);
     setFormatsError("");
     setLastFetchedUrl(videoUrl);
     
@@ -684,6 +733,7 @@ export default function App() {
       setUrl("");
       setFormats([]);
       setSelectedFormat("");
+      setWithSubtitles(false);
       setLastFetchedUrl("");
       setIsPlaylist(false);
       setPlaylistInfo(null);
@@ -733,6 +783,7 @@ export default function App() {
     setUrl("");
     setFormats([]);
     setSelectedFormat("");
+    setWithSubtitles(false);
     setLastFetchedUrl("");
     setIsPlaylist(false);
     setPlaylistInfo(null);
@@ -827,6 +878,7 @@ export default function App() {
                   if (newUrl !== lastFetchedUrl) {
                     setFormats([]);
                     setSelectedFormat("");
+                    setWithSubtitles(false);
                     setFormatsError("");
                     setIsPlaylist(false);
                     setPlaylistInfo(null);
@@ -913,6 +965,7 @@ export default function App() {
                   <option value="bv*[height<=480]+ba/b[height<=480]/best">480p</option>
                   <option value="ba/b">Audio Only (Best)</option>
                 </select>
+                <span className="text-xs text-slate-500">Subtitles unavailable in TXT mode</span>
               </div>
 
               {/* Action Buttons */}
@@ -983,9 +1036,7 @@ export default function App() {
                       key={option.quality}
                       onClick={() => {
                         setSelectedFormat(option.format);
-                        if (option.quality === "Audio") {
-                          setWithSubtitles(false);
-                        }
+                        setWithSubtitles(false);
                       }}
                       className={cn(
                         "p-3 rounded-lg border text-center transition-all duration-200",
@@ -1068,9 +1119,7 @@ export default function App() {
                     key={option.quality}
                     onClick={() => {
                       setSelectedFormat(option.format);
-                      if (option.quality === "Audio") {
-                        setWithSubtitles(false);
-                      }
+                      setWithSubtitles(false);
                     }}
                     className={cn(
                       "p-3 rounded-lg border text-center transition-all duration-200",

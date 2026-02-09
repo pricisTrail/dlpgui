@@ -365,18 +365,47 @@ async fn start_download(
         let exe_dir = exe_path.parent().ok_or("Failed to get exe directory")?;
         
         let target = tauri::utils::platform::target_triple().map_err(|e| e.to_string())?;
-        let ffmpeg_exe = format!("ffmpeg-{}.exe", target);
+        let ffmpeg_exe_with_target = format!("ffmpeg-{}.exe", target);
+        let ffmpeg_exe_simple = "ffmpeg.exe";
         
-        let ffmpeg_full_path = exe_dir.join(&ffmpeg_exe);
+        println!("[DEBUG] Looking for ffmpeg");
+        println!("[DEBUG] Exe directory: {:?}", exe_dir);
         
-        if ffmpeg_full_path.exists() {
-            ffmpeg_full_path.to_string_lossy().to_string()
-        } else {
-            let dev_path = std::path::PathBuf::from("binaries").join(&ffmpeg_exe);
-            if dev_path.exists() {
-                dev_path.canonicalize().map_err(|e| e.to_string())?.to_string_lossy().to_string()
-            } else {
-                format!("binaries/{}", ffmpeg_exe)
+        // Try multiple possible locations and names
+        // In production builds, Tauri strips the target triple from sidecar names
+        let possible_paths = vec![
+            // 1. Production build - same directory, simple name (Tauri strips target triple)
+            exe_dir.join(ffmpeg_exe_simple),
+            // 2. Production build - same directory, with target triple
+            exe_dir.join(&ffmpeg_exe_with_target),
+            // 3. Look in binaries subfolder next to exe
+            exe_dir.join("binaries").join(ffmpeg_exe_simple),
+            exe_dir.join("binaries").join(&ffmpeg_exe_with_target),
+            // 4. Dev mode - binaries folder from cwd (with target triple)
+            std::path::PathBuf::from("binaries").join(&ffmpeg_exe_with_target),
+            // 5. Dev mode - src-tauri/binaries (with target triple)
+            std::path::PathBuf::from("src-tauri/binaries").join(&ffmpeg_exe_with_target),
+        ];
+        
+        let mut found_path: Option<String> = None;
+        for path in &possible_paths {
+            println!("[DEBUG] Checking ffmpeg path: {:?} (exists: {})", path, path.exists());
+            if path.exists() {
+                found_path = Some(path.canonicalize()
+                    .unwrap_or_else(|_| path.to_path_buf())
+                    .to_string_lossy()
+                    .to_string());
+                break;
+            }
+        }
+        
+        match found_path {
+            Some(p) => p,
+            None => {
+                // Last resort: just use the expected production path
+                // This will cause yt-dlp to warn but at least we tried
+                println!("[WARN] ffmpeg not found in any expected location!");
+                exe_dir.join(ffmpeg_exe_simple).to_string_lossy().to_string()
             }
         }
     };
@@ -388,6 +417,11 @@ async fn start_download(
     println!("[DEBUG] Use aria2c: {}", use_aria2c);
     
     let output_template = format!("{}/%(title)s.%(ext)s", download_dir);
+    let temp_dir = PathBuf::from(&download_dir).join("_dlpgui_temp");
+    if let Err(err) = std::fs::create_dir_all(&temp_dir) {
+        println!("[WARN] Failed to create yt-dlp temp directory {:?}: {}", temp_dir, err);
+    }
+    let temp_path = format!("temp:{}", temp_dir.to_string_lossy());
     
     // Build args based on whether aria2c is enabled
     // aria2c cannot download HLS streams, so:
@@ -404,6 +438,11 @@ async fn start_download(
         "ejs:github".to_string(),
         "--ffmpeg-location".to_string(),
         ffmpeg_path,
+        "--merge-output-format".to_string(),
+        "mp4".to_string(),
+        "--no-keep-fragments".to_string(),
+        "-P".to_string(),
+        temp_path,
         "-o".to_string(),
         output_template,
     ];
@@ -506,13 +545,14 @@ async fn start_download(
             match event {
                 CommandEvent::Stdout(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    println!("[yt-dlp stdout #{}]: {}", event_count, line_str);
-                    
-                    // Emit log to frontend
-                    let _ = app_clone.emit("download-log", serde_json::json!({
-                        "id": id_clone.clone(),
-                        "message": line_str.to_string()
-                    }));
+                    let line_str = line_str.trim().to_string();
+                    if line_str.is_empty() {
+                        continue;
+                    }
+                    let is_progress_line = re_progress.is_match(&line_str)
+                        || re_progress_unknown.is_match(&line_str)
+                        || re_aria2c_progress.is_match(&line_str)
+                        || re_progress_simple.is_match(&line_str);
 
                     // Detect download phase changes
                     if re_destination.is_match(&line_str) {
@@ -652,15 +692,50 @@ async fn start_download(
                             }
                         }
                     }
+
+                    // Emit only important log lines to avoid overwhelming the frontend.
+                    let lower_line = line_str.to_ascii_lowercase();
+                    let should_emit_log = !is_progress_line
+                        && (re_destination.is_match(&line_str)
+                            || re_merging.is_match(&line_str)
+                            || re_postprocess.is_match(&line_str)
+                            || re_already_downloaded.is_match(&line_str)
+                            || lower_line.contains("error")
+                            || lower_line.contains("warning")
+                            || lower_line.contains("failed"));
+                    if should_emit_log {
+                        println!("[yt-dlp stdout #{}]: {}", event_count, line_str);
+                        let _ = app_clone.emit("download-log", serde_json::json!({
+                            "id": id_clone.clone(),
+                            "message": line_str
+                        }));
+                    }
                 }
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
-                    println!("[yt-dlp stderr #{}]: {}", event_count, line_str);
-                    let _ = app_clone.emit("download-log", serde_json::json!({
-                        "id": id_clone.clone(),
-                        "message": line_str.to_string(),
-                        "is_error": true
-                    }));
+                    let line_str = line_str.trim().to_string();
+                    if line_str.is_empty() {
+                        continue;
+                    }
+
+                    let is_progress_line = re_progress.is_match(&line_str)
+                        || re_progress_unknown.is_match(&line_str)
+                        || re_aria2c_progress.is_match(&line_str)
+                        || re_progress_simple.is_match(&line_str);
+                    let lower_line = line_str.to_ascii_lowercase();
+                    let should_emit_log = !is_progress_line
+                        || lower_line.contains("error")
+                        || lower_line.contains("warning")
+                        || lower_line.contains("failed");
+
+                    if should_emit_log {
+                        println!("[yt-dlp stderr #{}]: {}", event_count, line_str);
+                        let _ = app_clone.emit("download-log", serde_json::json!({
+                            "id": id_clone.clone(),
+                            "message": line_str,
+                            "is_error": true
+                        }));
+                    }
                 }
                 CommandEvent::Terminated(payload) => {
                     println!("[DEBUG] Process terminated for ID: {} with code: {:?}", id_clone, payload.code);
