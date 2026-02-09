@@ -416,7 +416,8 @@ async fn start_download(
     println!("[DEBUG] Format: {}", format_string);
     println!("[DEBUG] Use aria2c: {}", use_aria2c);
     
-    let output_template = format!("{}/%(title)s.%(ext)s", download_dir);
+    let output_template = "%(title)s.%(ext)s".to_string();
+    let home_path = format!("home:{}", download_dir);
     let temp_dir = PathBuf::from(&download_dir).join("_dlpgui_temp");
     if let Err(err) = std::fs::create_dir_all(&temp_dir) {
         println!("[WARN] Failed to create yt-dlp temp directory {:?}: {}", temp_dir, err);
@@ -441,6 +442,8 @@ async fn start_download(
         "--merge-output-format".to_string(),
         "mp4".to_string(),
         "--no-keep-fragments".to_string(),
+        "-P".to_string(),
+        home_path,
         "-P".to_string(),
         temp_path,
         "-o".to_string(),
@@ -487,7 +490,8 @@ async fn start_download(
         args.push("--write-auto-sub".to_string());
         args.push("--embed-subs".to_string());
         args.push("--sub-langs".to_string());
-        args.push("all".to_string());
+        // Limit subtitle downloads to English variants to avoid fetching dozens of auto-translated tracks.
+        args.push("en.*,en,-live_chat".to_string());
     }
     
     args.push("-N".to_string());

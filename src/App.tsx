@@ -154,9 +154,26 @@ interface PlaylistInfo {
   entries: PlaylistVideo[];
 }
 
+interface BatchQualityOption {
+  id: string;
+  label: string;
+  format: string;
+}
+
 const MAX_LOG_LINES_PER_DOWNLOAD = 300;
 const PROGRESS_UPDATE_INTERVAL_MS = 150;
 const MIN_PROGRESS_DELTA = 0.25;
+const DEFAULT_BATCH_FORMAT_ID = "1080";
+const BATCH_QUALITY_OPTIONS: BatchQualityOption[] = [
+  { id: "2160", label: "2160p (4K)", format: "bv*[height<=2160]+ba/b[height<=2160]/best" },
+  { id: "1440", label: "1440p (2K)", format: "bv*[height<=1440]+ba/b[height<=1440]/best" },
+  { id: "1080", label: "1080p (FHD)", format: "bv*[height<=1080]+ba/b[height<=1080]/best" },
+  { id: "720", label: "720p (HD)", format: "bv*[height<=720]+ba/b[height<=720]/best" },
+  { id: "480", label: "480p", format: "bv*[height<=480]+ba/b[height<=480]/best" },
+  { id: "360", label: "360p", format: "bv*[height<=360]+ba/b[height<=360]/best" },
+  { id: "240", label: "240p", format: "bv*[height<=240]+ba/b[height<=240]/best" },
+  { id: "audio", label: "Audio Only (Best)", format: "ba/b" },
+];
 
 export default function App() {
   const [url, setUrl] = useState("");
@@ -180,7 +197,9 @@ export default function App() {
   const [scheduledTime, setScheduledTime] = useState("");
   const [batchUrls, setBatchUrls] = useState<string[]>([]);
   const [isBatchMode, setIsBatchMode] = useState(false);
-  const [defaultFormat, setDefaultFormat] = useState("bv*[height<=1080]+ba/b[height<=1080]/best");
+  const [batchQualityId, setBatchQualityId] = useState(DEFAULT_BATCH_FORMAT_ID);
+  const [batchWithSubtitles, setBatchWithSubtitles] = useState(false);
+  const defaultFormat = "bv*[height<=1080]+ba/b[height<=1080]/best";
   const [isPlaylist, setIsPlaylist] = useState(false);
   const [playlistInfo, setPlaylistInfo] = useState<PlaylistInfo | null>(null);
   const [isFetchingPlaylist, setIsFetchingPlaylist] = useState(false);
@@ -217,6 +236,22 @@ export default function App() {
       return false;
     } catch {
       return false;
+    }
+  };
+
+  const getSelectedBatchQuality = (): BatchQualityOption => {
+    return BATCH_QUALITY_OPTIONS.find(option => option.id === batchQualityId)
+      || BATCH_QUALITY_OPTIONS.find(option => option.id === DEFAULT_BATCH_FORMAT_ID)
+      || BATCH_QUALITY_OPTIONS[0];
+  };
+  const selectedBatchQuality = getSelectedBatchQuality();
+  const isBatchAudioOnly = selectedBatchQuality.format === "ba/b";
+
+  const handleBatchQualityChange = (qualityId: string) => {
+    setBatchQualityId(qualityId);
+    const quality = BATCH_QUALITY_OPTIONS.find(option => option.id === qualityId);
+    if (quality?.format === "ba/b") {
+      setBatchWithSubtitles(false);
     }
   };
 
@@ -436,7 +471,6 @@ export default function App() {
       setIsBatchMode(true);
       setFormats([]); // Disable format fetching for batch
       setSelectedFormat("");
-      setWithSubtitles(false); // Batch TXT mode does not support subtitle quality variants
     }
     
     // Reset file input
@@ -450,7 +484,9 @@ export default function App() {
     if (batchUrls.length === 0) return;
     
     setIsProcessing(true);
-    const formatToUse = defaultFormat;
+    const batchQuality = getSelectedBatchQuality();
+    const formatToUse = batchQuality.format;
+    const subtitlesToUse = batchQuality.format === "ba/b" ? false : batchWithSubtitles;
 
     for (const batchUrl of batchUrls) {
       const id = Math.random().toString(36).substring(7);
@@ -467,7 +503,7 @@ export default function App() {
         logs: [],
         isLogsOpen: false,
         format: formatToUse,
-        subtitles: false
+        subtitles: subtitlesToUse
       };
 
       setDownloads(prev => [newDownload, ...prev]);
@@ -478,7 +514,7 @@ export default function App() {
           url: batchUrl,
           downloadDir: savePath,
           formatString: formatToUse,
-          subtitles: false,
+          subtitles: subtitlesToUse,
           useAria2c: useAria2c,
         });
       } catch (error) {
@@ -500,9 +536,10 @@ export default function App() {
   const scheduleDownload = () => {
     if (!url && batchUrls.length === 0) return;
     
+    const batchQuality = getSelectedBatchQuality();
     const urlsToSchedule = isBatchMode ? batchUrls : [url];
-    const formatToUse = isBatchMode ? defaultFormat : (selectedFormat || defaultFormat);
-    const subtitlesToUse = isBatchMode ? false : withSubtitles;
+    const formatToUse = isBatchMode ? batchQuality.format : (selectedFormat || defaultFormat);
+    const subtitlesToUse = isBatchMode ? (batchQuality.format === "ba/b" ? false : batchWithSubtitles) : withSubtitles;
 
     for (const scheduleUrl of urlsToSchedule) {
       const id = Math.random().toString(36).substring(7);
@@ -951,21 +988,31 @@ export default function App() {
               </div>
 
               {/* Default Format Selection */}
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-slate-400">Default Quality:</span>
-                <select
-                  value={defaultFormat}
-                  onChange={(e) => setDefaultFormat(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                >
-                  <option value="bv*[height<=2160]+ba/b[height<=2160]/best">2160p (4K)</option>
-                  <option value="bv*[height<=1440]+ba/b[height<=1440]/best">1440p (2K)</option>
-                  <option value="bv*[height<=1080]+ba/b[height<=1080]/best">1080p (FHD)</option>
-                  <option value="bv*[height<=720]+ba/b[height<=720]/best">720p (HD)</option>
-                  <option value="bv*[height<=480]+ba/b[height<=480]/best">480p</option>
-                  <option value="ba/b">Audio Only (Best)</option>
-                </select>
-                <span className="text-xs text-slate-500">Subtitles unavailable in TXT mode</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-400">Default Quality:</span>
+                  <select
+                    value={batchQualityId}
+                    onChange={(e) => handleBatchQualityChange(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  >
+                    {BATCH_QUALITY_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-400">Subtitles:</span>
+                  <select
+                    value={batchWithSubtitles ? "with" : "without"}
+                    onChange={(e) => setBatchWithSubtitles(e.target.value === "with")}
+                    disabled={isBatchAudioOnly}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:opacity-50"
+                  >
+                    <option value="without">No subtitles</option>
+                    <option value="with">With subtitles</option>
+                  </select>
+                </div>
               </div>
 
               {/* Action Buttons */}
@@ -1741,18 +1788,41 @@ export default function App() {
               <div className="space-y-2">
                 <label className="text-sm text-slate-400">Quality</label>
                 <select
-                  value={isBatchMode ? defaultFormat : (selectedFormat || defaultFormat)}
-                  onChange={(e) => isBatchMode ? setDefaultFormat(e.target.value) : setSelectedFormat(e.target.value)}
+                  value={isBatchMode ? batchQualityId : (selectedFormat || defaultFormat)}
+                  onChange={(e) => isBatchMode ? handleBatchQualityChange(e.target.value) : setSelectedFormat(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                 >
-                  <option value="bv*[height<=2160]+ba/b[height<=2160]/best">2160p (4K)</option>
-                  <option value="bv*[height<=1440]+ba/b[height<=1440]/best">1440p (2K)</option>
-                  <option value="bv*[height<=1080]+ba/b[height<=1080]/best">1080p (FHD)</option>
-                  <option value="bv*[height<=720]+ba/b[height<=720]/best">720p (HD)</option>
-                  <option value="bv*[height<=480]+ba/b[height<=480]/best">480p</option>
-                  <option value="ba/b">Audio Only (Best)</option>
+                  {isBatchMode ? (
+                    BATCH_QUALITY_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="bv*[height<=2160]+ba/b[height<=2160]/best">2160p (4K)</option>
+                      <option value="bv*[height<=1440]+ba/b[height<=1440]/best">1440p (2K)</option>
+                      <option value="bv*[height<=1080]+ba/b[height<=1080]/best">1080p (FHD)</option>
+                      <option value="bv*[height<=720]+ba/b[height<=720]/best">720p (HD)</option>
+                      <option value="bv*[height<=480]+ba/b[height<=480]/best">480p</option>
+                      <option value="ba/b">Audio Only (Best)</option>
+                    </>
+                  )}
                 </select>
               </div>
+
+              {isBatchMode && (
+                <div className="space-y-2">
+                  <label className="text-sm text-slate-400">Subtitles</label>
+                  <select
+                    value={batchWithSubtitles ? "with" : "without"}
+                    onChange={(e) => setBatchWithSubtitles(e.target.value === "with")}
+                    disabled={isBatchAudioOnly}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:opacity-50"
+                  >
+                    <option value="without">No subtitles</option>
+                    <option value="with">With subtitles</option>
+                  </select>
+                </div>
+              )}
 
               {/* Date & Time Picker */}
               <div className="space-y-2">
