@@ -5,7 +5,6 @@ import { twMerge } from "tailwind-merge";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { downloadDir } from "@tauri-apps/api/path";
 
 function cn(...inputs: ClassValue[]) {
@@ -448,12 +447,10 @@ export default function App() {
     setHistory(prev => prev.filter(h => h.id !== id));
   };
 
-  const openFolder = async (path: string) => {
-    try {
-      await revealItemInDir(path);
-    } catch (error) {
+  const openFolder = (path: string) => {
+    invoke('open_folder', { path }).catch(error => {
       console.error('Failed to open folder:', error);
-    }
+    });
   };
 
   // Handle TXT file import

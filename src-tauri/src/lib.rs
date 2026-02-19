@@ -441,6 +441,7 @@ async fn start_download(
         ffmpeg_path,
         "--merge-output-format".to_string(),
         "mp4".to_string(),
+        "--embed-thumbnail".to_string(),
         "--no-keep-fragments".to_string(),
         "-P".to_string(),
         home_path,
@@ -489,6 +490,9 @@ async fn start_download(
         args.push("--write-subs".to_string());
         args.push("--write-auto-sub".to_string());
         args.push("--embed-subs".to_string());
+        // Remove subtitle sidecars after embedding to avoid .vtt file clutter.
+        args.push("--compat-options".to_string());
+        args.push("no-keep-subs".to_string());
         args.push("--sub-langs".to_string());
         // Limit subtitle downloads to English variants to avoid fetching dozens of auto-translated tracks.
         args.push("en.*,en,-live_chat".to_string());
@@ -984,6 +988,37 @@ async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     Ok(new_version)
 }
 
+#[tauri::command]
+async fn open_folder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Normalize: replace forward slashes with backslashes and strip any trailing separator
+        let normalized = path.replace('/', "\\");
+        let normalized = normalized.trim_end_matches('\\');
+        tokio::process::Command::new("explorer.exe")
+            .arg(normalized)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        tokio::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        tokio::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -991,7 +1026,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![start_download, fetch_formats, fetch_playlist_info, cancel_download, check_ytdlp_update, update_ytdlp])
+        .invoke_handler(tauri::generate_handler![start_download, fetch_formats, fetch_playlist_info, cancel_download, check_ytdlp_update, update_ytdlp, open_folder])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
