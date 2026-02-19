@@ -1,6 +1,10 @@
 # yt-dlp GUI
 
 A cross-platform desktop application for downloading videos and audio using [yt-dlp](https://github.com/yt-dlp/yt-dlp), built with Tauri, React, and TypeScript.
+                                              <img width="1366" height="768" alt="Screenshot_84" src="https://github.com/user-attachments/assets/fa36b47d-ca1c-4079-a4bd-e244bb2a92f8" />
+                                              <img width="1366" height="768" alt="Screenshot_83" src="https://github.com/user-attachments/assets/29ca3d27-f0f8-41b5-a6dd-8c6044c6370c" />
+
+
 
 ## Features
 
