@@ -418,11 +418,12 @@ async fn start_download(
     
     let output_template = "%(title)s.%(ext)s".to_string();
     let home_path = format!("home:{}", download_dir);
-    let temp_dir = PathBuf::from(&download_dir).join("_dlpgui_temp");
-    if let Err(err) = std::fs::create_dir_all(&temp_dir) {
-        println!("[WARN] Failed to create yt-dlp temp directory {:?}: {}", temp_dir, err);
+    let download_temp_dir = PathBuf::from(&download_dir).join("_dlpgui_temp").join(&id);
+    if let Err(err) = std::fs::create_dir_all(&download_temp_dir) {
+        println!("[WARN] Failed to create yt-dlp temp directory {:?}: {}", download_temp_dir, err);
     }
-    let temp_path = format!("temp:{}", temp_dir.to_string_lossy());
+    let temp_path = format!("temp:{}", download_temp_dir.to_string_lossy());
+    let subtitle_path = format!("subtitle:{}", download_temp_dir.to_string_lossy());
     
     // Build args based on whether aria2c is enabled
     // aria2c cannot download HLS streams, so:
@@ -447,6 +448,8 @@ async fn start_download(
         home_path,
         "-P".to_string(),
         temp_path,
+        "-P".to_string(),
+        subtitle_path,
         "-o".to_string(),
         output_template,
     ];
@@ -490,9 +493,6 @@ async fn start_download(
         args.push("--write-subs".to_string());
         args.push("--write-auto-sub".to_string());
         args.push("--embed-subs".to_string());
-        // Remove subtitle sidecars after embedding to avoid .vtt file clutter.
-        args.push("--compat-options".to_string());
-        args.push("no-keep-subs".to_string());
         args.push("--sub-langs".to_string());
         // Limit subtitle downloads to English variants to avoid fetching dozens of auto-translated tracks.
         args.push("en.*,en,-live_chat".to_string());
@@ -525,6 +525,7 @@ async fn start_download(
 
     let app_clone = app.clone();
     let id_clone = id.clone();
+    let temp_dir_for_cleanup = download_temp_dir.clone();
 
     // Spawn the event handler in a separate task
     tokio::spawn(async move {
@@ -766,6 +767,14 @@ async fn start_download(
         if let Ok(mut downloads) = ACTIVE_DOWNLOADS.lock() {
             downloads.remove(&id_clone);
             println!("[DEBUG] Removed download from ACTIVE_DOWNLOADS");
+        }
+
+        if temp_dir_for_cleanup.exists() {
+            if let Err(err) = std::fs::remove_dir_all(&temp_dir_for_cleanup) {
+                println!("[WARN] Failed to clean temp directory {:?}: {}", temp_dir_for_cleanup, err);
+            } else {
+                println!("[DEBUG] Cleaned temp directory {:?}", temp_dir_for_cleanup);
+            }
         }
     });
 
