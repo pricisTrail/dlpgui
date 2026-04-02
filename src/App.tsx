@@ -99,7 +99,7 @@ export default function App() {
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
   });
 
-  const [uiPreset] = useState<LayoutPreset>(() => {
+  const [uiPreset, setUiPreset] = useState<LayoutPreset>(() => {
     const saved = localStorage.getItem("uiPreset");
     return saved === "glass" || saved === "notion" ? saved : "notion";
   });
@@ -1015,6 +1015,11 @@ export default function App() {
         onToggleAutoUpdate={() => setAutoUpdateYtdlp((value) => !value)}
         onRefreshExtensionBridge={() => {
           void loadExtensionBridgeInfo();
+        }}
+        onSwitchPreset={(presetId) => {
+          const next = presetId === "glass" || presetId === "notion" ? presetId : "notion";
+          setUiPreset(next);
+          localStorage.setItem("uiPreset", next);
         }}
       />
     </div>
