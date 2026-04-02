@@ -34,6 +34,7 @@ interface SettingsModalProps {
   onUpdateYtdlp: () => void;
   onToggleAutoUpdate: () => void;
   onRefreshExtensionBridge: () => void;
+  onSwitchPreset: (presetId: string) => void;
 }
 
 export function SettingsModal({
@@ -53,6 +54,7 @@ export function SettingsModal({
   onUpdateYtdlp,
   onToggleAutoUpdate,
   onRefreshExtensionBridge,
+  onSwitchPreset,
 }: SettingsModalProps) {
   if (!isOpen) return null;
 
@@ -80,9 +82,16 @@ export function SettingsModal({
             </h3>
             <div className="grid gap-3">
               {interfacePresets.map((preset) => (
-                <div
+                <button
                   key={preset.id}
-                  className="rounded-lg border border-[#EAEAEA] p-4 transition-colors dark:border-[#2A2A2A]"
+                  type="button"
+                  onClick={() => onSwitchPreset(preset.id)}
+                  className={cn(
+                    "w-full rounded-lg border p-4 text-left transition-all duration-200",
+                    preset.status === "active"
+                      ? "border-[#111111] bg-[#F7F6F3] shadow-[0_0_0_1px_#111111] dark:border-[#EDEDED] dark:bg-[#1F1F1F] dark:shadow-[0_0_0_1px_#EDEDED]"
+                      : "border-[#EAEAEA] hover:border-[#CCCCCC] hover:bg-[#FBFBFA] dark:border-[#2A2A2A] dark:hover:border-[#444444] dark:hover:bg-[#1A1A1A]",
+                  )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -95,7 +104,7 @@ export function SettingsModal({
                     </div>
                     <span
                       className={cn(
-                        "rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em]",
+                        "rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-colors",
                         preset.status === "active"
                           ? "bg-[#111111] text-white dark:bg-[#EDEDED] dark:text-[#111111]"
                           : "bg-[#F7F6F3] text-[#787774] dark:bg-[#1F1F1F] dark:text-[#888888]",
@@ -104,11 +113,11 @@ export function SettingsModal({
                       {preset.status}
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
             <p className="text-xs text-[#787774] dark:text-[#888888]">
-              The layout switcher will be exposed here later. Both presets are preserved.
+              Click a preset to switch the interface layout. Your preference is saved automatically.
             </p>
           </div>
 
