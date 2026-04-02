@@ -455,10 +455,24 @@ async fn start_download(
     ];
 
     // Add extractor args based on download method
+    let extractor_skip = if subtitles {
+        // Avoid fetching translated subtitle variants such as "en-en-GB".
+        // Those create extra requests and can trigger 429s before video download starts.
+        if use_aria2c {
+            "youtube:skip=hls,translated_subs"
+        } else {
+            "youtube:skip=dash,translated_subs"
+        }
+    } else if use_aria2c {
+        "youtube:skip=hls"
+    } else {
+        "youtube:skip=dash"
+    };
+
     if use_aria2c {
         // Use DASH formats with aria2c for faster downloads
         args.push("--extractor-args".to_string());
-        args.push("youtube:skip=hls".to_string());
+        args.push(extractor_skip.to_string());
         args.push("--downloader".to_string());
         args.push("aria2c".to_string());
         args.push("--downloader-args".to_string());
@@ -466,7 +480,7 @@ async fn start_download(
     } else {
         // Use HLS formats which bypass SABR restrictions
         args.push("--extractor-args".to_string());
-        args.push("youtube:skip=dash".to_string());
+        args.push(extractor_skip.to_string());
     }
 
     // Parse target resolution from format string and add -S for proper sorting
@@ -494,8 +508,8 @@ async fn start_download(
         args.push("--write-auto-sub".to_string());
         args.push("--embed-subs".to_string());
         args.push("--sub-langs".to_string());
-        // Limit subtitle downloads to English variants to avoid fetching dozens of auto-translated tracks.
-        args.push("en.*,en,-live_chat".to_string());
+        // Keep subtitle requests to a small exact English fallback set.
+        args.push("en,en-US,en-GB,en-orig,-live_chat".to_string());
     }
     
     args.push("-N".to_string());
