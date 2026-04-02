@@ -178,7 +178,7 @@ export function GlassDashboard({
   );
   const historyPages = paginateItems(
     history,
-    (item) => (item.isLogsOpen ? 4 : 1),
+    () => 1,
     HISTORY_PAGE_CAPACITY,
   );
   const queuePageCount = Math.max(1, queuePages.length);
@@ -224,7 +224,7 @@ export function GlassDashboard({
         <section className="flex flex-col lg:sticky lg:top-8 lg:h-fit">
           <div className="min-h-[92px] pb-5" />
 
-          <div className="relative -top-[4.5rem] flex h-[560px] flex-col gap-5 rounded-[2.5rem] border border-white/5 bg-zinc-900/40 px-6 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_40px_-15px_rgba(0,0,0,0.55)] backdrop-blur-3xl sm:px-8 sm:py-6">
+          <div className="relative -top-[4.5rem] flex h-[600px] flex-col gap-5 rounded-[2.5rem] border border-white/5 bg-zinc-900/40 px-6 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_40px_-15px_rgba(0,0,0,0.55)] backdrop-blur-3xl sm:px-8 sm:py-6">
             <div className="relative">
               <label className="mb-3 block text-[10px] font-bold uppercase tracking-[0.24em] text-zinc-400">
                 Target source
@@ -506,7 +506,7 @@ export function GlassDashboard({
             </div>
           </div>
 
-          <div className="relative -top-[4.5rem] h-[620px] overflow-hidden">
+          <div className="relative -top-[4.5rem] h-[660px] overflow-hidden">
             {currentView === "active" ? (
               activeDownloads.length === 0 &&
                 scheduledDownloads.length === 0 ? (
@@ -520,8 +520,8 @@ export function GlassDashboard({
                 </div>
               ) : (
                 <div className="relative h-full pr-1 pt-8">
-                  <div className="h-full overflow-y-auto pb-28">
-                    <div className="min-h-full overflow-hidden rounded-[2rem] border border-zinc-800/50 bg-zinc-900/20 p-5">
+                  <div className="h-[calc(100%-2rem)] min-h-[calc(560px-2rem)] overflow-hidden rounded-[2rem] border border-zinc-800/50 bg-zinc-900/20">
+                    <div className="h-full overflow-y-auto p-5">
                       {visibleScheduledDownloads.length > 0 && (
                         <div className="flex flex-col gap-3">
                           <h3 className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">
@@ -570,8 +570,8 @@ export function GlassDashboard({
               </div>
             ) : (
               <div className="relative h-full pr-1 pt-8">
-                <div className="h-full overflow-y-auto pb-4">
-                  <div className="flex h-[calc(100%-16px)] flex-col overflow-hidden rounded-[2rem] border border-zinc-800/50 bg-zinc-900/20">
+                <div className="h-[calc(100%-2rem)] min-h-[calc(560px-2rem)] overflow-hidden rounded-[2rem] border border-zinc-800/50 bg-zinc-900/20">
+                  <div className="flex h-full flex-col overflow-y-auto">
                     {visibleHistory.map((item, index, items) => (
                       <HistoryDownloadCard
                         key={item.id}
@@ -720,7 +720,7 @@ function EmptyStateCard({
   return (
     <div
       className={cn(
-        "flex h-full min-h-[560px] flex-col items-center justify-start rounded-[2.5rem] border border-dashed border-zinc-700/80 bg-zinc-900/10 px-6 pt-48 text-center shadow-[inset_0_0_0_1px_rgba(63,63,70,0.35)]",
+        "flex h-full min-h-[560px] flex-col items-center justify-start overflow-hidden rounded-[2.5rem] border border-dashed border-zinc-700/80 bg-zinc-900/10 px-6 pt-48 text-center shadow-[inset_0_0_0_1px_rgba(63,63,70,0.35)]",
         className,
       )}
     >
@@ -959,7 +959,7 @@ function HistoryDownloadCard({
   return (
     <div
       className={cn(
-        "group relative overflow-hidden",
+        "group relative overflow-hidden hover:bg-zinc-800/30",
         !isLast && "border-b border-zinc-800/50",
       )}
     >
@@ -973,7 +973,7 @@ function HistoryDownloadCard({
       <button
         type="button"
         onClick={() => onToggleLogs(item.id)}
-        className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left transition-colors hover:bg-zinc-800/30"
+        className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left"
       >
         <div className="min-w-0">
           <h4 className="truncate text-sm font-medium text-zinc-300">
@@ -1035,7 +1035,7 @@ function HistoryDownloadCard({
       </button>
 
       {item.isLogsOpen && (
-        <div className="border-t border-zinc-800/50 bg-zinc-950/50 px-6 py-4 font-mono text-xs leading-relaxed text-zinc-500">
+        <div className="px-6 py-4 font-mono text-xs leading-relaxed text-zinc-500">
           {item.logs?.length ? (
             item.logs.map((log, index) => (
               <div key={`${item.id}-log-${index}`}>{log}</div>

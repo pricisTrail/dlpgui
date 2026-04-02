@@ -247,9 +247,8 @@ export function NotionDashboard({
               <h1 className="relative -top-0.5 font-serif text-2xl tracking-tight text-[#111111] dark:text-[#EDEDED]">
                 New Download
               </h1>
-              {(urlType || isFetchingPlaylist || formatsError) && (
+              {(playlistInfo || isFetchingPlaylist || formatsError) && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {urlType && <Badge variant="default">{urlType}</Badge>}
                   {playlistInfo && (
                     <Badge variant="blue">
                       {playlistInfo.video_count} items
@@ -451,46 +450,48 @@ export function NotionDashboard({
           </div>
 
           <div className="flex flex-col gap-3">
-            {items.length > 0 ? (
-              currentView === "active" ? (
-                <div className="scrollbar-hidden flex h-[340px] flex-col gap-3 overflow-y-auto pr-1">
-                  {items.map((item) => (
-                    <NotionActiveDownloadCard
-                      key={item.id}
-                      item={item}
-                      onCancel={onCancelDownload}
-                    />
-                  ))}
-                </div>
+            <div className="scrollbar-hidden min-h-[340px] max-h-[340px] overflow-y-auto rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
+              {items.length > 0 ? (
+                currentView === "active" ? (
+                  <div className="flex flex-col gap-3 p-3">
+                    {items.map((item) => (
+                      <NotionActiveDownloadCard
+                        key={item.id}
+                        item={item}
+                        onCancel={onCancelDownload}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div>
+                    {items.map((item, index) => (
+                      <NotionHistoryCard
+                        key={item.id}
+                        item={item}
+                        isLast={index === items.length - 1}
+                        onToggleLogs={onToggleHistoryLogs}
+                        onOpenFolder={onOpenFolder}
+                      />
+                    ))}
+                  </div>
+                )
               ) : (
-                <div className="scrollbar-hidden h-[340px] overflow-y-auto rounded-lg border border-[#EAEAEA] bg-white dark:border-[#2A2A2A] dark:bg-[#141414]">
-                  {items.map((item, index) => (
-                    <NotionHistoryCard
-                      key={item.id}
-                      item={item}
-                      isLast={index === items.length - 1}
-                      onToggleLogs={onToggleHistoryLogs}
-                      onOpenFolder={onOpenFolder}
-                    />
-                  ))}
+                <div className="flex min-h-[340px] items-center justify-center">
+                  <div className="text-center">
+                    <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
+                      {currentView === "active"
+                        ? "No queued downloads"
+                        : "No history yet"}
+                    </p>
+                    <p className="mt-1 text-xs text-[#787774] dark:text-[#888888]">
+                      {currentView === "active"
+                        ? "Paste a URL or import a batch list to begin."
+                        : "Completed and failed items will appear here."}
+                    </p>
+                  </div>
                 </div>
-              )
-            ) : (
-              <div className="flex min-h-[340px] items-center justify-center rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
-                <div className="text-center">
-                  <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
-                    {currentView === "active"
-                      ? "No queued downloads"
-                      : "No history yet"}
-                  </p>
-                  <p className="mt-1 text-xs text-[#787774] dark:text-[#888888]">
-                    {currentView === "active"
-                      ? "Paste a URL or import a batch list to begin."
-                      : "Completed and failed items will appear here."}
-                  </p>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="flex items-center justify-between pt-0.5">
               <span className="text-xs text-[#787774] dark:text-[#888888]">
