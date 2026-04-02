@@ -863,26 +863,32 @@ fn get_ytdlp_path() -> Result<PathBuf, String> {
     let exe_dir = exe_path.parent().ok_or("Failed to get exe directory")?;
     
     let target = tauri::utils::platform::target_triple().map_err(|e| e.to_string())?;
+    let ytdlp_simple = "yt-dlp.exe";
     let ytdlp_exe = format!("yt-dlp-{}.exe", target);
-    
-    let ytdlp_full_path = exe_dir.join(&ytdlp_exe);
-    
-    if ytdlp_full_path.exists() {
-        Ok(ytdlp_full_path)
-    } else {
-        // Dev mode - check binaries folder
-        let dev_path = std::path::PathBuf::from("src-tauri/binaries").join(&ytdlp_exe);
-        if dev_path.exists() {
-            Ok(dev_path.canonicalize().map_err(|e| e.to_string())?)
-        } else {
-            let alt_dev_path = std::path::PathBuf::from("binaries").join(&ytdlp_exe);
-            if alt_dev_path.exists() {
-                Ok(alt_dev_path.canonicalize().map_err(|e| e.to_string())?)
-            } else {
-                Err(format!("yt-dlp not found at {:?}", ytdlp_full_path))
-            }
+
+    let possible_paths = vec![
+        // Production/dev runtime output: Tauri strips the target triple.
+        exe_dir.join(ytdlp_simple),
+        exe_dir.join(&ytdlp_exe),
+        exe_dir.join("binaries").join(ytdlp_simple),
+        exe_dir.join("binaries").join(&ytdlp_exe),
+        // Source tree during local development.
+        std::path::PathBuf::from("src-tauri/binaries").join(ytdlp_simple),
+        std::path::PathBuf::from("src-tauri/binaries").join(&ytdlp_exe),
+        std::path::PathBuf::from("binaries").join(ytdlp_simple),
+        std::path::PathBuf::from("binaries").join(&ytdlp_exe),
+    ];
+
+    for path in possible_paths {
+        if path.exists() {
+            return path.canonicalize().map_err(|e| e.to_string());
         }
     }
+
+    Err(format!(
+        "yt-dlp not found. Checked runtime and bundled paths from {:?}",
+        exe_dir
+    ))
 }
 
 #[tauri::command]
