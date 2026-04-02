@@ -1,15 +1,18 @@
-import { useState, useEffect, useRef } from "react";
-import { Download, Link as LinkIcon, Settings, Folder, FileVideo, CheckCircle2, AlertCircle, Loader2, RefreshCw, HardDrive, Music, X, FolderOpen, Trash2, Clock, History, FileText, Calendar, List, Play, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useEffect, useRef, type MouseEvent } from "react";
+import { Download, Link as LinkIcon, Settings, Folder, FileVideo, CheckCircle2, AlertCircle, Loader2, RefreshCw, HardDrive, Music, X, FolderOpen, Trash2, Clock, History, FileText, Calendar, List, Play, ChevronLeft, ChevronRight, Minus, Square } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { downloadDir } from "@tauri-apps/api/path";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+const appWindow = getCurrentWindow();
 
 // Pagination Component
 function Pagination({ 
@@ -843,12 +846,40 @@ export default function App() {
     }
   };
 
+  const minimizeWindow = async () => {
+    await appWindow.minimize();
+  };
+
+  const toggleMaximizeWindow = async () => {
+    if (await appWindow.isMaximized()) {
+      await appWindow.unmaximize();
+      return;
+    }
+
+    await appWindow.maximize();
+  };
+
+  const closeWindow = async () => {
+    await appWindow.close();
+  };
+
+  const startWindowDrag = async (event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+
+    await appWindow.startDragging();
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col w-full">
       {/* Header */}
-      <header className="p-6 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
+      <header className="relative pt-11 pb-6 pl-6 pr-40 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-10">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div
+            className="flex items-center gap-3 flex-1 min-w-0 select-none cursor-grab active:cursor-grabbing"
+            data-tauri-drag-region
+            onMouseDown={startWindowDrag}
+            onDoubleClick={toggleMaximizeWindow}
+          >
             <div className="bg-indigo-600 p-2 rounded-lg">
               <Download className="w-6 h-6 text-white" />
             </div>
@@ -879,6 +910,29 @@ export default function App() {
               <Settings className="w-5 h-5 text-slate-400" />
             </button>
           </div>
+        </div>
+        <div className="absolute top-1 right-0 z-20 flex items-stretch select-none">
+          <button
+            onClick={minimizeWindow}
+            className="flex h-10 w-12 items-center justify-center text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            title="Minimize"
+          >
+            <Minus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={toggleMaximizeWindow}
+            className="flex h-10 w-12 items-center justify-center text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            title="Maximize"
+          >
+            <Square className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={closeWindow}
+            className="flex h-10 w-12 items-center justify-center text-slate-400 hover:bg-rose-600 hover:text-white transition-colors"
+            title="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
