@@ -99,7 +99,10 @@ export default function App() {
     return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
   });
 
-  const uiPreset: LayoutPreset = "notion";
+  const [uiPreset] = useState<LayoutPreset>(() => {
+    const saved = localStorage.getItem("uiPreset");
+    return saved === "glass" || saved === "notion" ? saved : "notion";
+  });
   const trimmedUrl = url.trim();
   const urlLines = getUrlLines(url);
   const playlistDetected = isPlaylistUrl(trimmedUrl) || isPlaylist;
@@ -157,16 +160,16 @@ export default function App() {
         id: "glass",
         name: "Glass dashboard",
         description: "Dark split-pane orchestration view from the first redesign.",
-        status: "saved",
+        status: uiPreset === "glass" ? "active" : "saved",
       },
       {
         id: "notion",
         name: "Workspace list",
         description: "Editorial queue view based on the second UI direction.",
-        status: "active",
+        status: uiPreset === "notion" ? "active" : "saved",
       },
     ],
-    [],
+    [uiPreset],
   );
 
   const loadExtensionBridgeInfo = async () => {
