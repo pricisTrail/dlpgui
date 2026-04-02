@@ -141,10 +141,13 @@ export function NotionDashboard({
   onCloseWindow,
   onStartDrag,
 }: NotionDashboardProps) {
-  const pagination = currentView === "active" ? activePagination : historyPagination;
+  const pagination =
+    currentView === "active" ? activePagination : historyPagination;
   const items = currentView === "active" ? activeItems : historyItems;
   const showingStart =
-    pagination.totalItems === 0 ? 0 : (pagination.currentPage - 1) * pagination.itemsPerPage + 1;
+    pagination.totalItems === 0
+      ? 0
+      : (pagination.currentPage - 1) * pagination.itemsPerPage + 1;
   const showingEnd =
     pagination.totalItems === 0
       ? 0
@@ -167,7 +170,9 @@ export function NotionDashboard({
         onDoubleClick={onToggleMaximize}
       >
         <div className="flex items-center gap-4 font-mono text-[#787774] transition-colors dark:text-[#888888]">
-          <span className="font-semibold text-[#111111] dark:text-[#EDEDED]">yt-dlp</span>
+          <span className="font-semibold text-[#111111] dark:text-[#EDEDED]">
+            yt-dlp
+          </span>
           <span>{versionLabel}</span>
         </div>
 
@@ -218,28 +223,44 @@ export function NotionDashboard({
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" className="px-2 py-1" onClick={onToggleDarkMode}>
+          <Button
+            variant="ghost"
+            className="px-2 py-1"
+            onClick={onToggleDarkMode}
+          >
             {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
           </Button>
-          <Button variant="ghost" className="px-2 py-1" onClick={onOpenSettings}>
+          <Button
+            variant="ghost"
+            className="px-2 py-1"
+            onClick={onOpenSettings}
+          >
             <Settings size={18} />
           </Button>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 p-6">
-        <section className="rounded-xl border border-[#EAEAEA] bg-white p-6 shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition-colors dark:border-[#2A2A2A] dark:bg-[#141414] dark:shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
-          <div className="mb-6 flex items-center justify-between gap-4">
+      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 p-6">
+        <section className="rounded-xl border border-[#EAEAEA] bg-white px-6 py-5 shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition-colors dark:border-[#2A2A2A] dark:bg-[#141414] dark:shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+          <div className="mb-3 flex items-center justify-between gap-4">
             <div>
-              <h1 className="font-serif text-2xl tracking-tight text-[#111111] dark:text-[#EDEDED]">
+              <h1 className="relative -top-0.5 font-serif text-2xl tracking-tight text-[#111111] dark:text-[#EDEDED]">
                 New Download
               </h1>
               {(urlType || isFetchingPlaylist || formatsError) && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {urlType && <Badge variant="default">{urlType}</Badge>}
-                  {playlistInfo && <Badge variant="blue">{playlistInfo.video_count} items</Badge>}
-                  {isFetchingPlaylist && <Badge variant="yellow">Fetching playlist</Badge>}
-                  {formatsError && <Badge variant="red">Playlist lookup failed</Badge>}
+                  {playlistInfo && (
+                    <Badge variant="blue">
+                      {playlistInfo.video_count} items
+                    </Badge>
+                  )}
+                  {isFetchingPlaylist && (
+                    <Badge variant="yellow">Fetching playlist</Badge>
+                  )}
+                  {formatsError && (
+                    <Badge variant="red">Playlist lookup failed</Badge>
+                  )}
                 </div>
               )}
             </div>
@@ -280,7 +301,9 @@ export function NotionDashboard({
                   </>
                 )}
                 {formatsError && (
-                  <span className="text-[#9F2F2D] dark:text-[#E86B69]">{formatsError}</span>
+                  <span className="text-[#9F2F2D] dark:text-[#E86B69]">
+                    {formatsError}
+                  </span>
                 )}
               </div>
             )}
@@ -305,7 +328,7 @@ export function NotionDashboard({
                   className={cn(
                     "flex cursor-pointer select-none items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
                     subtitlesEnabled
-                      ? "border-[#111111] bg-[#F7F6F3] dark:border-[#EDEDED] dark:bg-[#1F1F1F]"
+                      ? "border-[#EAEAEA] bg-[#F1EFE9] text-[#111111] shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] dark:border-[#2A2A2A] dark:bg-[#1A1A1A] dark:text-[#EDEDED] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                       : "border-[#EAEAEA] bg-white hover:bg-[#FBFBFA] dark:border-[#2A2A2A] dark:bg-[#141414] dark:hover:bg-[#0F0F0F]",
                     isAudioOnly && "cursor-not-allowed opacity-50",
                   )}
@@ -333,7 +356,9 @@ export function NotionDashboard({
                 <Button
                   variant="secondary"
                   title="Schedule Download"
-                  className={cn(isScheduling && "border-[#111111] dark:border-[#EDEDED]")}
+                  className={cn(
+                    isScheduling && "border-[#111111] dark:border-[#EDEDED]",
+                  )}
                   onClick={onToggleScheduling}
                 >
                   <Clock size={16} />
@@ -344,8 +369,14 @@ export function NotionDashboard({
                   onClick={onPrimaryAction}
                   disabled={!canSubmit}
                 >
-                  {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-                  <span>{isScheduling ? "Queue Download" : "Start Download"}</span>
+                  {isProcessing ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Download size={16} />
+                  )}
+                  <span>
+                    {isScheduling ? "Queue Download" : "Start Download"}
+                  </span>
                   <span className="ml-2 border-l border-white/20 pl-2 dark:border-black/20">
                     <Kbd>Enter</Kbd>
                   </span>
@@ -358,20 +389,24 @@ export function NotionDashboard({
                 <input
                   type="datetime-local"
                   value={scheduledTime}
-                  onChange={(event) => onScheduledTimeChange(event.target.value)}
+                  onChange={(event) =>
+                    onScheduledTimeChange(event.target.value)
+                  }
                   className="rounded-md border border-[#EAEAEA] bg-white px-3 py-2 text-sm text-[#111111] transition-colors focus:border-[#111111] focus:outline-none dark:border-[#2A2A2A] dark:bg-[#141414] dark:text-[#EDEDED] dark:focus:border-[#EDEDED]"
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  {(["1h", "3h", "Tonight", "Tomorrow"] as const).map((preset) => (
-                    <Button
-                      key={preset}
-                      variant="ghost"
-                      className="px-3 py-1.5"
-                      onClick={() => onSetPresetDate(preset)}
-                    >
-                      {preset}
-                    </Button>
-                  ))}
+                  {(["1h", "3h", "Tonight", "Tomorrow"] as const).map(
+                    (preset) => (
+                      <Button
+                        key={preset}
+                        variant="ghost"
+                        className="px-3 py-1.5"
+                        onClick={() => onSetPresetDate(preset)}
+                      >
+                        {preset}
+                      </Button>
+                    ),
+                  )}
                 </div>
               </div>
             )}
@@ -415,29 +450,38 @@ export function NotionDashboard({
             </button>
           </div>
 
-          <div className="flex min-h-[400px] flex-col gap-3">
+          <div className="flex flex-col gap-3">
             {items.length > 0 ? (
-              items.map((item) =>
-                currentView === "active" ? (
-                  <NotionActiveDownloadCard
-                    key={item.id}
-                    item={item}
-                    onCancel={onCancelDownload}
-                  />
-                ) : (
-                  <NotionHistoryCard
-                    key={item.id}
-                    item={item}
-                    onToggleLogs={onToggleHistoryLogs}
-                    onOpenFolder={onOpenFolder}
-                  />
-                ),
+              currentView === "active" ? (
+                <div className="scrollbar-hidden flex h-[340px] flex-col gap-3 overflow-y-auto pr-1">
+                  {items.map((item) => (
+                    <NotionActiveDownloadCard
+                      key={item.id}
+                      item={item}
+                      onCancel={onCancelDownload}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="scrollbar-hidden h-[340px] overflow-y-auto rounded-lg border border-[#EAEAEA] bg-white dark:border-[#2A2A2A] dark:bg-[#141414]">
+                  {items.map((item, index) => (
+                    <NotionHistoryCard
+                      key={item.id}
+                      item={item}
+                      isLast={index === items.length - 1}
+                      onToggleLogs={onToggleHistoryLogs}
+                      onOpenFolder={onOpenFolder}
+                    />
+                  ))}
+                </div>
               )
             ) : (
-              <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
+              <div className="flex min-h-[340px] items-center justify-center rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
                 <div className="text-center">
                   <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
-                    {currentView === "active" ? "No queued downloads" : "No history yet"}
+                    {currentView === "active"
+                      ? "No queued downloads"
+                      : "No history yet"}
                   </p>
                   <p className="mt-1 text-xs text-[#787774] dark:text-[#888888]">
                     {currentView === "active"
@@ -448,7 +492,7 @@ export function NotionDashboard({
               </div>
             )}
 
-            <div className="mt-auto flex items-center justify-between border-t border-[#EAEAEA] pt-6 transition-colors dark:border-[#2A2A2A]">
+            <div className="flex items-center justify-between pt-0.5">
               <span className="text-xs text-[#787774] dark:text-[#888888]">
                 Showing {showingStart}-{showingEnd} of {pagination.totalItems}
               </span>
@@ -456,13 +500,20 @@ export function NotionDashboard({
                 <Button
                   variant="secondary"
                   className="px-2 py-1"
-                  onClick={() => pagination.onPageChange(Math.max(1, pagination.currentPage - 1))}
+                  onClick={() =>
+                    pagination.onPageChange(
+                      Math.max(1, pagination.currentPage - 1),
+                    )
+                  }
                   disabled={pagination.currentPage === 1}
                 >
                   <ChevronLeft size={16} />
                 </Button>
                 <div className="flex gap-1">
-                  {getVisiblePages(pagination.currentPage, pagination.totalPages).map((page) => (
+                  {getVisiblePages(
+                    pagination.currentPage,
+                    pagination.totalPages,
+                  ).map((page) => (
                     <button
                       key={page}
                       type="button"
@@ -483,7 +534,10 @@ export function NotionDashboard({
                   className="px-2 py-1"
                   onClick={() =>
                     pagination.onPageChange(
-                      Math.min(pagination.totalPages, pagination.currentPage + 1),
+                      Math.min(
+                        pagination.totalPages,
+                        pagination.currentPage + 1,
+                      ),
                     )
                   }
                   disabled={pagination.currentPage === pagination.totalPages}
@@ -573,7 +627,8 @@ function getVisiblePages(currentPage: number, totalPages: number) {
   }
 
   if (currentPage <= 2) return [1, 2, 3];
-  if (currentPage >= totalPages - 1) return [totalPages - 2, totalPages - 1, totalPages];
+  if (currentPage >= totalPages - 1)
+    return [totalPages - 2, totalPages - 1, totalPages];
   return [currentPage - 1, currentPage, currentPage + 1];
 }
 
@@ -592,7 +647,10 @@ function NotionActiveDownloadCard({
     <div className="group relative overflow-hidden rounded-lg border border-[#EAEAEA] bg-white p-4 transition-all hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] dark:border-[#2A2A2A] dark:bg-[#141414] dark:hover:shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
       {!isScheduled && (
         <div
-          className={cn("absolute inset-y-0 left-0 opacity-[0.03] dark:opacity-[0.05]", config.fill)}
+          className={cn(
+            "absolute inset-y-0 left-0 opacity-[0.03] dark:opacity-[0.05]",
+            config.fill,
+          )}
           style={{ width: `${Math.max(0, Math.min(item.progress, 100))}%` }}
         />
       )}
@@ -609,7 +667,11 @@ function NotionActiveDownloadCard({
             <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-[#787774] dark:text-[#888888]">
               <span className="max-w-[320px] truncate">{item.url}</span>
               <span>•</span>
-              <span>{item.format ? formatQualityLabel(item.format, Boolean(item.subtitles)) : "Queued"}</span>
+              <span>
+                {item.format
+                  ? formatQualityLabel(item.format, Boolean(item.subtitles))
+                  : "Queued"}
+              </span>
             </div>
           </div>
 
@@ -637,8 +699,13 @@ function NotionActiveDownloadCard({
           <div className="flex items-center gap-4">
             <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[#F7F6F3] transition-colors dark:bg-[#1F1F1F]">
               <div
-                className={cn("h-full rounded-full transition-all duration-300", config.fill)}
-                style={{ width: `${Math.max(0, Math.min(item.progress, 100))}%` }}
+                className={cn(
+                  "h-full rounded-full transition-all duration-300",
+                  config.fill,
+                )}
+                style={{
+                  width: `${Math.max(0, Math.min(item.progress, 100))}%`,
+                }}
               />
               <div className="absolute inset-y-0 left-[50%] w-px bg-white/50 dark:bg-black/50" />
               <div className="absolute inset-y-0 left-[95%] w-px bg-white/50 dark:bg-black/50" />
@@ -661,19 +728,27 @@ function NotionActiveDownloadCard({
 
 function NotionHistoryCard({
   item,
+  isLast,
   onToggleLogs,
   onOpenFolder,
 }: {
   item: DownloadItem;
+  isLast: boolean;
   onToggleLogs: (id: string, isOpen?: boolean) => void;
   onOpenFolder: (path: string) => void;
 }) {
   const config = getHistoryStatusConfig(item.status);
   const Icon = config.icon;
-  const errorMessage = item.status === "error" ? getHistoryErrorMessage(item) : "";
+  const errorMessage =
+    item.status === "error" ? getHistoryErrorMessage(item) : "";
 
   return (
-    <div className="rounded-lg border border-[#EAEAEA] bg-white p-4 transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
+    <div
+      className={cn(
+        "group px-4 py-4 transition-colors",
+        !isLast && "border-b border-[#EAEAEA] dark:border-[#2A2A2A]",
+      )}
+    >
       <div className="flex items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-4">
           <div
@@ -688,21 +763,30 @@ function NotionHistoryCard({
             <h3 className="truncate text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
               {item.title}
             </h3>
-            <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-xs text-[#787774] dark:text-[#888888]">
-              <span>
-                {item.completedAt
-                  ? new Date(item.completedAt).toLocaleString()
-                  : "Unknown"}
+            <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-xs text-[#787774] dark:text-[#888888]">
+              <span className="inline-flex items-center rounded-md border border-[#EAEAEA] bg-[#FBFBFA] px-2.5 py-1 transition-colors dark:border-[#2A2A2A] dark:bg-[#0F0F0F]">
+                <span>
+                  {item.completedAt
+                    ? new Date(item.completedAt).toLocaleString()
+                    : "Unknown"}
+                </span>
+                <span className="mx-2 opacity-60">&bull;</span>
+                <span>
+                  {item.format
+                    ? formatQualityLabel(item.format, Boolean(item.subtitles))
+                    : "Queued"}
+                </span>
+                {item.size && (
+                  <>
+                    <span className="mx-2 opacity-60">&bull;</span>
+                    <span>{item.size}</span>
+                  </>
+                )}
               </span>
-              <span>•</span>
-              <span>{item.format ? formatQualityLabel(item.format, Boolean(item.subtitles)) : "Queued"}</span>
-              <span>•</span>
-              <span>{item.size}</span>
               {errorMessage && (
-                <>
-                  <span>•</span>
-                  <span className="text-[#9F2F2D] dark:text-[#E86B69]">{errorMessage}</span>
-                </>
+                <span className="rounded-md border border-[#f8c9cb] bg-[#FDEBEC] px-2.5 py-1 text-[#9F2F2D] transition-colors dark:border-[#571D1F] dark:bg-[#331112] dark:text-[#E86B69]">
+                  {errorMessage}
+                </span>
               )}
             </div>
           </div>
@@ -735,7 +819,9 @@ function NotionHistoryCard({
 
       {item.isLogsOpen && (
         <div className="mt-4 whitespace-pre-wrap rounded-md border border-[#EAEAEA] bg-[#FBFBFA] p-3 font-mono text-xs text-[#787774] transition-colors dark:border-[#2A2A2A] dark:bg-[#0F0F0F] dark:text-[#888888]">
-          {item.logs?.length ? item.logs.join("\n") : "No logs captured for this item."}
+          {item.logs?.length
+            ? item.logs.join("\n")
+            : "No logs captured for this item."}
         </div>
       )}
     </div>
@@ -745,28 +831,59 @@ function NotionHistoryCard({
 function getPhaseConfig(phase: string) {
   switch (phase) {
     case "VIDEO":
-      return { fill: "bg-indigo-400 dark:bg-indigo-500", badge: "blue" as const };
+      return {
+        fill: "bg-indigo-400 dark:bg-indigo-500",
+        badge: "blue" as const,
+      };
     case "AUDIO":
-      return { fill: "bg-emerald-400 dark:bg-emerald-500", badge: "green" as const };
+      return {
+        fill: "bg-emerald-400 dark:bg-emerald-500",
+        badge: "green" as const,
+      };
     case "MERGING":
     case "PROCESSING":
-      return { fill: "bg-amber-400 dark:bg-amber-500", badge: "yellow" as const };
+      return {
+        fill: "bg-amber-400 dark:bg-amber-500",
+        badge: "yellow" as const,
+      };
     case "SCHEDULED":
-      return { fill: "bg-[#EAEAEA] dark:bg-[#2A2A2A]", badge: "default" as const };
+      return {
+        fill: "bg-[#EAEAEA] dark:bg-[#2A2A2A]",
+        badge: "default" as const,
+      };
     default:
-      return { fill: "bg-[#111111] dark:bg-[#EDEDED]", badge: "default" as const };
+      return {
+        fill: "bg-[#111111] dark:bg-[#EDEDED]",
+        badge: "default" as const,
+      };
   }
 }
 
 function getHistoryStatusConfig(status: DownloadItem["status"]) {
   switch (status) {
     case "completed":
-      return { icon: CheckCircle2, color: "text-[#346538] dark:text-[#76B87B]", badge: "green" as const };
+      return {
+        icon: CheckCircle2,
+        color: "text-[#346538] dark:text-[#76B87B]",
+        badge: "green" as const,
+      };
     case "error":
-      return { icon: AlertCircle, color: "text-[#9F2F2D] dark:text-[#E86B69]", badge: "red" as const };
+      return {
+        icon: AlertCircle,
+        color: "text-[#9F2F2D] dark:text-[#E86B69]",
+        badge: "red" as const,
+      };
     case "cancelled":
-      return { icon: StopCircle, color: "text-[#956400] dark:text-[#E6B300]", badge: "yellow" as const };
+      return {
+        icon: StopCircle,
+        color: "text-[#956400] dark:text-[#E6B300]",
+        badge: "yellow" as const,
+      };
     default:
-      return { icon: FileText, color: "text-[#787774] dark:text-[#888888]", badge: "default" as const };
+      return {
+        icon: FileText,
+        color: "text-[#787774] dark:text-[#888888]",
+        badge: "default" as const,
+      };
   }
 }

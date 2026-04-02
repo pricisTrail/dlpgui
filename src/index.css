@@ -21,6 +21,7 @@
 html {
   min-height: 100%;
   background: #fbfbfa;
+  overflow: hidden;
 }
 
 body {
@@ -29,6 +30,7 @@ body {
   min-height: 100dvh;
   background: #fbfbfa;
   color: #111111;
+  overflow: hidden;
 }
 
 * {
@@ -54,6 +56,7 @@ select {
 #root {
   min-height: 100dvh;
   width: 100%;
+  overflow: hidden;
 }
 
 ::-webkit-scrollbar {
@@ -73,4 +76,44 @@ select {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(120, 119, 116, 0.65);
+}
+
+.settings-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 119, 116, 0.45) transparent;
+}
+
+.settings-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background: rgba(120, 119, 116, 0.45);
+}
+
+.settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 119, 116, 0.65);
+}
+
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.dark .settings-scroll {
+  scrollbar-color: rgba(161, 161, 170, 0.4) transparent;
+}
+
+.dark .settings-scroll::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.4);
+}
+
+.dark .settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(161, 161, 170, 0.58);
 }

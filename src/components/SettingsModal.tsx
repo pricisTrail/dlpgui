@@ -73,7 +73,7 @@ export function SettingsModal({
           </button>
         </div>
 
-        <div className="flex max-h-[60vh] flex-col gap-8 overflow-y-auto p-6">
+        <div className="settings-scroll flex max-h-[60vh] flex-col gap-8 overflow-y-auto p-6">
           <div className="space-y-4">
             <h3 className="text-xs font-mono uppercase tracking-[0.22em] text-[#787774] dark:text-[#888888]">
               Interface presets
