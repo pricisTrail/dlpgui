@@ -1,23 +1,33 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { downloadDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
-import { AppHeader } from "./components/AppHeader";
-import { ComposerSection } from "./components/ComposerSection";
-import { DownloadsSection } from "./components/DownloadsSection";
-import { ScheduleModal } from "./components/ScheduleModal";
-import { SettingsModal } from "./components/SettingsModal";
+
+import { GlassDashboard } from "./components/layouts/GlassDashboard";
+import { NotionDashboard } from "./components/layouts/NotionDashboard";
+import { SettingsModal, type InterfacePreset } from "./components/SettingsModal";
 import { useWindowControls } from "./hooks/useWindowControls";
 import { useYtdlpUpdater } from "./hooks/useYtdlpUpdater";
+import {
+  formatExtensionStatus,
+  getFormatFromQualityId,
+  getQualityIdFromFormat,
+  getQueuedTitle,
+  getUrlLines,
+  isPlaylistUrl,
+  toLocalDateTimeValue,
+  type UrlType,
+} from "./lib/downloadUi";
 import {
   BATCH_QUALITY_OPTIONS,
   DEFAULT_BATCH_FORMAT_ID,
   DEFAULT_FORMAT_STRING,
+  ITEMS_PER_PAGE,
   MAX_LOG_LINES_PER_DOWNLOAD,
   MIN_PROGRESS_DELTA,
   PROGRESS_UPDATE_INTERVAL_MS,
-  type BatchQualityOption,
   type DownloadItem,
   type ExtensionBridgeInfo,
   type ExtensionDownloadRequest,
@@ -28,8 +38,11 @@ import {
   type TitlePayload,
 } from "./lib/types";
 
+type LayoutPreset = "glass" | "notion";
+
 export default function App() {
-  const { minimizeWindow, toggleMaximizeWindow, closeWindow, startWindowDrag } = useWindowControls();
+  const { minimizeWindow, toggleMaximizeWindow, closeWindow, startWindowDrag } =
+    useWindowControls();
   const {
     ytdlpVersion,
     ytdlpLatestVersion,
@@ -41,34 +54,6 @@ export default function App() {
     checkYtdlpUpdate,
     updateYtdlp,
   } = useYtdlpUpdater();
-  const [url, setUrl] = useState("");
-  const [downloads, setDownloads] = useState<DownloadItem[]>([]);
-  const [history, setHistory] = useState<DownloadItem[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [savePath, setSavePath] = useState("");
-  const [selectedFormat, setSelectedFormat] = useState("");
-  const [withSubtitles, setWithSubtitles] = useState(false);
-  const [formatsError, setFormatsError] = useState("");
-  const [lastFetchedUrl, setLastFetchedUrl] = useState("");
-  const [useAria2c, setUseAria2c] = useState<boolean>(() => {
-    const saved = localStorage.getItem("useAria2c");
-    return saved !== null ? JSON.parse(saved) : true;
-  });
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
-  const [scheduledTime, setScheduledTime] = useState("");
-  const [batchUrls, setBatchUrls] = useState<string[]>([]);
-  const [isBatchMode, setIsBatchMode] = useState(false);
-  const [batchQualityId, setBatchQualityId] = useState(DEFAULT_BATCH_FORMAT_ID);
-  const [batchWithSubtitles, setBatchWithSubtitles] = useState(false);
-  const [isPlaylist, setIsPlaylist] = useState(false);
-  const [playlistInfo, setPlaylistInfo] = useState<PlaylistInfo | null>(null);
-  const [isFetchingPlaylist, setIsFetchingPlaylist] = useState(false);
-  const [extensionBridgeInfo, setExtensionBridgeInfo] = useState<ExtensionBridgeInfo | null>(null);
-  const [extensionActivity, setExtensionActivity] = useState("");
-  const [downloadsPage, setDownloadsPage] = useState(1);
-  const [historyPage, setHistoryPage] = useState(1);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const progressUpdateTimesRef = useRef<Record<string, number>>({});
@@ -79,51 +64,110 @@ export default function App() {
     useAria2c: true,
   });
   const handledExtensionRequestsRef = useRef<Set<string>>(new Set());
-  const isPlaylistUrl = (urlString: string) => {
-    try {
-      const parsed = new URL(urlString);
-      return parsed.pathname === "/playlist" && parsed.searchParams.has("list");
-    } catch {
-      return false;
-    }
-  };
-  const getSelectedBatchQuality = (): BatchQualityOption => {
-    return (
-      BATCH_QUALITY_OPTIONS.find((option) => option.id === batchQualityId) ||
-      BATCH_QUALITY_OPTIONS.find((option) => option.id === DEFAULT_BATCH_FORMAT_ID) ||
-      BATCH_QUALITY_OPTIONS[0]
-    );
-  };
-  const selectedBatchQuality = getSelectedBatchQuality();
-  const isBatchAudioOnly = selectedBatchQuality.format === "ba/b";
-  const handleBatchQualityChange = (qualityId: string) => {
-    setBatchQualityId(qualityId);
-    const quality = BATCH_QUALITY_OPTIONS.find((option) => option.id === qualityId);
-    if (quality?.format === "ba/b") {
-      setBatchWithSubtitles(false);
-    }
-  };
 
-  const handleUrlChange = (nextUrl: string) => {
-    setUrl(nextUrl);
-    if (nextUrl !== lastFetchedUrl) {
-      setSelectedFormat("");
-      setWithSubtitles(false);
-      setFormatsError("");
-      setIsPlaylist(false);
-      setPlaylistInfo(null);
+  const [url, setUrl] = useState("");
+  const [downloads, setDownloads] = useState<DownloadItem[]>([]);
+  const [history, setHistory] = useState<DownloadItem[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [savePath, setSavePath] = useState("");
+  const [selectedFormat, setSelectedFormat] = useState(DEFAULT_FORMAT_STRING);
+  const [withSubtitles, setWithSubtitles] = useState(false);
+  const [formatsError, setFormatsError] = useState("");
+  const [lastFetchedUrl, setLastFetchedUrl] = useState("");
+  const [useAria2c, setUseAria2c] = useState<boolean>(() => {
+    const saved = localStorage.getItem("useAria2c");
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isScheduling, setIsScheduling] = useState(false);
+  const [scheduledTime, setScheduledTime] = useState("");
+  const [batchQualityId, setBatchQualityId] = useState(DEFAULT_BATCH_FORMAT_ID);
+  const [batchWithSubtitles, setBatchWithSubtitles] = useState(false);
+  const [isPlaylist, setIsPlaylist] = useState(false);
+  const [playlistInfo, setPlaylistInfo] = useState<PlaylistInfo | null>(null);
+  const [isFetchingPlaylist, setIsFetchingPlaylist] = useState(false);
+  const [extensionBridgeInfo, setExtensionBridgeInfo] = useState<ExtensionBridgeInfo | null>(null);
+  const [extensionActivity, setExtensionActivity] = useState("");
+  const [currentView, setCurrentView] = useState<"active" | "history">("active");
+  const [activePage, setActivePage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem("uiDarkMode");
+    if (saved !== null) {
+      return JSON.parse(saved);
     }
-  };
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
 
-  const resetSingleUrlComposer = () => {
-    setUrl("");
-    setSelectedFormat("");
-    setWithSubtitles(false);
-    setLastFetchedUrl("");
-    setIsPlaylist(false);
-    setPlaylistInfo(null);
-    setFormatsError("");
-  };
+  const uiPreset: LayoutPreset = "notion";
+  const trimmedUrl = url.trim();
+  const urlLines = getUrlLines(url);
+  const playlistDetected = isPlaylistUrl(trimmedUrl) || isPlaylist;
+  const urlType: UrlType = !trimmedUrl
+    ? null
+    : urlLines.length > 1
+      ? "batch"
+      : playlistDetected
+        ? "playlist"
+        : "single";
+  const isBatchMode = urlType === "batch";
+  const selectedBatchQuality =
+    BATCH_QUALITY_OPTIONS.find((option) => option.id === batchQualityId) ||
+    BATCH_QUALITY_OPTIONS.find((option) => option.id === DEFAULT_BATCH_FORMAT_ID) ||
+    BATCH_QUALITY_OPTIONS[0];
+  const selectedQualityId = isBatchMode
+    ? batchQualityId
+    : getQualityIdFromFormat(selectedFormat);
+  const isAudioOnly =
+    (isBatchMode ? selectedBatchQuality.format : selectedFormat) === "ba/b";
+  const subtitlesEnabled = isBatchMode ? batchWithSubtitles : withSubtitles;
+  const activeDownloads = downloads.filter(
+    (download) => download.status === "pending" || download.status === "downloading",
+  );
+  const scheduledDownloads = downloads.filter((download) => download.status === "scheduled");
+  const queuedDownloads = [...activeDownloads, ...scheduledDownloads];
+  const activeTotalPages = Math.max(1, Math.ceil(queuedDownloads.length / ITEMS_PER_PAGE));
+  const historyTotalPages = Math.max(1, Math.ceil(history.length / ITEMS_PER_PAGE));
+  const activeItems = queuedDownloads.slice(
+    (activePage - 1) * ITEMS_PER_PAGE,
+    activePage * ITEMS_PER_PAGE,
+  );
+  const historyItems = history.slice(
+    (historyPage - 1) * ITEMS_PER_PAGE,
+    historyPage * ITEMS_PER_PAGE,
+  );
+  const hasTargetInput = urlLines.length > 0;
+  const isBusy = isProcessing || isFetchingPlaylist;
+  const shouldWaitForPlaylistMeta =
+    urlType === "playlist" && !playlistInfo && !formatsError && trimmedUrl !== lastFetchedUrl;
+  const canSubmit =
+    hasTargetInput &&
+    !isBusy &&
+    !shouldWaitForPlaylistMeta &&
+    (!isScheduling || Boolean(scheduledTime));
+  const extensionStatusLabel = formatExtensionStatus(
+    extensionBridgeInfo?.ready,
+    extensionBridgeInfo?.port,
+  );
+  const versionLabel = ytdlpVersion ? `v${ytdlpVersion}` : "local build";
+
+  const interfacePresets = useMemo<InterfacePreset[]>(
+    () => [
+      {
+        id: "glass",
+        name: "Glass dashboard",
+        description: "Dark split-pane orchestration view from the first redesign.",
+        status: "saved",
+      },
+      {
+        id: "notion",
+        name: "Workspace list",
+        description: "Editorial queue view based on the second UI direction.",
+        status: "active",
+      },
+    ],
+    [],
+  );
 
   const loadExtensionBridgeInfo = async () => {
     try {
@@ -139,6 +183,57 @@ export default function App() {
         error: String(error),
       });
     }
+  };
+
+  const clearComposer = () => {
+    setUrl("");
+    setLastFetchedUrl("");
+    setIsPlaylist(false);
+    setPlaylistInfo(null);
+    setFormatsError("");
+    setIsScheduling(false);
+    setScheduledTime("");
+  };
+
+  const handleUrlChange = (nextUrl: string) => {
+    setUrl(nextUrl);
+    if (nextUrl !== lastFetchedUrl) {
+      setFormatsError("");
+      setIsPlaylist(false);
+      setPlaylistInfo(null);
+    }
+  };
+
+  const handleSingleQualityChange = (qualityId: string) => {
+    const nextFormat = getFormatFromQualityId(qualityId);
+    setSelectedFormat(nextFormat);
+    if (nextFormat === "ba/b") {
+      setWithSubtitles(false);
+    }
+  };
+
+  const handleBatchQualityChange = (qualityId: string) => {
+    setBatchQualityId(qualityId);
+    if (getFormatFromQualityId(qualityId) === "ba/b") {
+      setBatchWithSubtitles(false);
+    }
+  };
+
+  const handleSelectQualityId = (qualityId: string) => {
+    if (isBatchMode) {
+      handleBatchQualityChange(qualityId);
+      return;
+    }
+    handleSingleQualityChange(qualityId);
+  };
+
+  const handleToggleSubtitles = () => {
+    if (isAudioOnly) return;
+    if (isBatchMode) {
+      setBatchWithSubtitles((value) => !value);
+      return;
+    }
+    setWithSubtitles((value) => !value);
   };
 
   const startSingleDownload = async ({
@@ -160,7 +255,7 @@ export default function App() {
     const newDownload: DownloadItem = {
       id,
       url: downloadUrl,
-      title: downloadTitle || downloadUrl.split("/").pop() || "Video",
+      title: downloadTitle || getQueuedTitle(downloadUrl, "Queued video"),
       status: "pending",
       progress: 0,
       speed: "0 KB/s",
@@ -168,6 +263,8 @@ export default function App() {
       size: "Unknown",
       logs: [],
       isLogsOpen: false,
+      format: formatString,
+      subtitles,
     };
 
     setDownloads((previous) => [newDownload, ...previous]);
@@ -206,6 +303,7 @@ export default function App() {
     const sourceLabel = request.source ? ` from ${request.source}` : "";
     const qualityLabel = request.quality_label ? ` | ${request.quality_label}` : "";
     setExtensionActivity(`Queued${sourceLabel}${qualityLabel}: ${request.title || request.url}`);
+    setCurrentView("active");
 
     try {
       await startSingleDownload({
@@ -240,6 +338,10 @@ export default function App() {
   };
 
   useEffect(() => {
+    localStorage.setItem("uiDarkMode", JSON.stringify(isDarkMode));
+  }, [isDarkMode]);
+
+  useEffect(() => {
     extensionDefaultsRef.current = {
       savePath,
       formatString: selectedFormat || DEFAULT_FORMAT_STRING,
@@ -250,11 +352,7 @@ export default function App() {
 
   useEffect(() => {
     if (!extensionActivity) return;
-
-    const timer = window.setTimeout(() => {
-      setExtensionActivity("");
-    }, 5000);
-
+    const timer = window.setTimeout(() => setExtensionActivity(""), 5000);
     return () => window.clearTimeout(timer);
   }, [extensionActivity]);
 
@@ -303,7 +401,7 @@ export default function App() {
 
       setDownloads((previous) => {
         let changed = false;
-        const next: DownloadItem[] = previous.map((item): DownloadItem => {
+        const next = previous.map((item) => {
           if (item.id !== event.payload.id) return item;
 
           const progressChanged =
@@ -332,7 +430,7 @@ export default function App() {
             speed: event.payload.speed,
             eta: event.payload.eta,
             size: event.payload.size,
-            status: "downloading",
+            status: "downloading" as const,
             phase: event.payload.phase,
           };
         });
@@ -405,41 +503,21 @@ export default function App() {
     };
   }, []);
 
-  const selectFolder = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      defaultPath: savePath,
-    });
-
-    if (selected && typeof selected === "string") {
-      setSavePath(selected);
-      extensionDefaultsRef.current = {
-        ...extensionDefaultsRef.current,
-        savePath: selected,
-      };
-      localStorage.setItem("downloadPath", selected);
-    }
-  };
-
   useEffect(() => {
     localStorage.setItem("useAria2c", JSON.stringify(useAria2c));
   }, [useAria2c]);
 
   useEffect(() => {
-    if (!url || isBatchMode || url === lastFetchedUrl || isFetchingPlaylist) {
-      return;
-    }
-    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    if (!trimmedUrl || urlType !== "playlist" || trimmedUrl === lastFetchedUrl || isFetchingPlaylist) {
       return;
     }
 
     const timer = window.setTimeout(() => {
-      void fetchFormats(url);
+      void fetchFormats(trimmedUrl);
     }, 800);
 
     return () => window.clearTimeout(timer);
-  }, [url, lastFetchedUrl, isBatchMode, isFetchingPlaylist]);
+  }, [trimmedUrl, urlType, lastFetchedUrl, isFetchingPlaylist]);
 
   useEffect(() => {
     if (history.length > 0) {
@@ -455,9 +533,7 @@ export default function App() {
         download.status === "cancelled",
     );
 
-    if (completed.length === 0) {
-      return;
-    }
+    if (completed.length === 0) return;
 
     const updatedCompleted = completed.map((download) => ({
       ...download,
@@ -481,9 +557,28 @@ export default function App() {
     );
   }, [downloads, savePath]);
 
+  useEffect(() => {
+    if (activePage > activeTotalPages) {
+      setActivePage(activeTotalPages);
+    }
+  }, [activePage, activeTotalPages]);
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
+
+  useEffect(() => {
+    if (isSettingsOpen) {
+      void loadExtensionBridgeInfo();
+    }
+  }, [isSettingsOpen]);
+
   const clearHistory = () => {
     setHistory([]);
     localStorage.removeItem("downloadHistory");
+    setHistoryPage(1);
   };
 
   const removeFromHistory = (id: string) => {
@@ -491,9 +586,27 @@ export default function App() {
   };
 
   const openFolder = (path: string) => {
+    if (!path) return;
     invoke("open_folder", { path }).catch((error) => {
       console.error("Failed to open folder:", error);
     });
+  };
+
+  const selectFolder = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      defaultPath: savePath,
+    });
+
+    if (selected && typeof selected === "string") {
+      setSavePath(selected);
+      extensionDefaultsRef.current = {
+        ...extensionDefaultsRef.current,
+        savePath: selected,
+      };
+      localStorage.setItem("downloadPath", selected);
+    }
   };
 
   const handleFileImport = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -502,15 +615,12 @@ export default function App() {
 
     const text = await file.text();
     const lines = text
-      .split("\n")
+      .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line && (line.startsWith("http://") || line.startsWith("https://")));
 
     if (lines.length > 0) {
-      setBatchUrls(lines);
-      setIsBatchMode(true);
-      setSelectedFormat("");
-      setWithSubtitles(false);
+      setUrl(lines.join("\n"));
       setFormatsError("");
       setIsPlaylist(false);
       setPlaylistInfo(null);
@@ -522,36 +632,36 @@ export default function App() {
   };
 
   const startBatchDownload = async () => {
-    if (batchUrls.length === 0) return;
+    if (urlLines.length === 0) return;
 
     setIsProcessing(true);
-    const batchQuality = getSelectedBatchQuality();
-    const formatToUse = batchQuality.format;
+    const formatToUse = selectedBatchQuality.format;
     const subtitlesToUse = formatToUse === "ba/b" ? false : batchWithSubtitles;
+    const pendingBatchItems = urlLines.map((batchUrl, index) => ({
+      id: Math.random().toString(36).substring(7),
+      url: batchUrl,
+      title: `Batch item ${index + 1}`,
+      status: "pending" as const,
+      progress: 0,
+      speed: "0 KB/s",
+      eta: "N/A",
+      size: "Unknown",
+      logs: [],
+      isLogsOpen: false,
+      format: formatToUse,
+      subtitles: subtitlesToUse,
+    }));
 
-    for (const batchUrl of batchUrls) {
-      const id = Math.random().toString(36).substring(7);
-      const newDownload: DownloadItem = {
-        id,
-        url: batchUrl,
-        title: batchUrl.split("/").pop() || "Video",
-        status: "pending",
-        progress: 0,
-        speed: "0 KB/s",
-        eta: "N/A",
-        size: "Unknown",
-        logs: [],
-        isLogsOpen: false,
-        format: formatToUse,
-        subtitles: subtitlesToUse,
-      };
+    setDownloads((previous) => [...pendingBatchItems, ...previous]);
+    clearComposer();
+    setCurrentView("active");
+    setActivePage(1);
 
-      setDownloads((previous) => [newDownload, ...previous]);
-
+    for (const item of pendingBatchItems) {
       try {
         await invoke("start_download", {
-          id,
-          url: batchUrl,
+          id: item.id,
+          url: item.url,
           downloadDir: savePath,
           formatString: formatToUse,
           subtitles: subtitlesToUse,
@@ -560,33 +670,43 @@ export default function App() {
       } catch (error) {
         console.error("Failed to start download:", error);
         setDownloads((previous) =>
-          previous.map((item) => (item.id === id ? { ...item, status: "error" } : item)),
+          previous.map((download) =>
+            download.id === item.id ? { ...download, status: "error" } : download,
+          ),
         );
       }
     }
 
-    setBatchUrls([]);
-    setIsBatchMode(false);
     setIsProcessing(false);
   };
 
-  const scheduleDownload = () => {
-    if (!url && batchUrls.length === 0) return;
+  const queueScheduledDownloads = () => {
+    if (!scheduledTime || urlLines.length === 0) return;
 
-    const batchQuality = getSelectedBatchQuality();
-    const urlsToSchedule = isBatchMode ? batchUrls : [url];
-    const formatToUse = isBatchMode ? batchQuality.format : selectedFormat || DEFAULT_FORMAT_STRING;
-    const subtitlesToUse = isBatchMode
-      ? batchQuality.format === "ba/b"
+    const scheduleUrls =
+      urlType === "playlist" && playlistInfo
+        ? playlistInfo.entries.map((entry) => ({ url: entry.url, title: entry.title }))
+        : urlLines.map((entry, index) => ({
+            url: entry,
+            title:
+              urlType === "batch"
+                ? `Batch item ${index + 1}`
+                : getQueuedTitle(entry, "Scheduled item"),
+          }));
+    const formatToUse =
+      urlType === "batch" ? selectedBatchQuality.format : selectedFormat || DEFAULT_FORMAT_STRING;
+    const subtitlesToUse =
+      formatToUse === "ba/b"
         ? false
-        : batchWithSubtitles
-      : withSubtitles;
+        : urlType === "batch"
+          ? batchWithSubtitles
+          : withSubtitles;
 
     setDownloads((previous) => [
-      ...urlsToSchedule.map((scheduledUrl) => ({
+      ...scheduleUrls.map((item) => ({
         id: Math.random().toString(36).substring(7),
-        url: scheduledUrl,
-        title: scheduledUrl.split("/").pop() || "Scheduled Video",
+        url: item.url,
+        title: item.title,
         status: "scheduled" as const,
         progress: 0,
         speed: "0 KB/s",
@@ -601,11 +721,9 @@ export default function App() {
       ...previous,
     ]);
 
-    resetSingleUrlComposer();
-    setBatchUrls([]);
-    setIsBatchMode(false);
-    setIsScheduleModalOpen(false);
-    setScheduledTime("");
+    clearComposer();
+    setCurrentView("active");
+    setActivePage(1);
   };
 
   useEffect(() => {
@@ -620,8 +738,7 @@ export default function App() {
             return item;
           }
 
-          const scheduledDate = new Date(item.scheduledFor);
-          if (now < scheduledDate) {
+          if (now < new Date(item.scheduledFor)) {
             return item;
           }
 
@@ -652,42 +769,24 @@ export default function App() {
   }, [savePath, useAria2c, withSubtitles]);
 
   const fetchFormats = async (videoUrl: string) => {
-    if (!videoUrl || videoUrl === lastFetchedUrl || isBatchMode) return;
+    if (!videoUrl || videoUrl === lastFetchedUrl || urlType !== "playlist") return;
 
-    if (isPlaylistUrl(videoUrl)) {
-      setIsPlaylist(true);
-      setIsFetchingPlaylist(true);
-      setSelectedFormat("");
-      setWithSubtitles(false);
-      setFormatsError("");
-
-      try {
-        const info = await invoke<PlaylistInfo>("fetch_playlist_info", { url: videoUrl });
-        setPlaylistInfo(info);
-        setLastFetchedUrl(videoUrl);
-      } catch (error) {
-        console.error("Failed to fetch playlist info:", error);
-        setFormatsError(String(error));
-        setPlaylistInfo(null);
-      } finally {
-        setIsFetchingPlaylist(false);
-      }
-      return;
-    }
-
-    setIsPlaylist(false);
-    setPlaylistInfo(null);
-    setSelectedFormat("");
-    setWithSubtitles(false);
+    setIsPlaylist(true);
+    setIsFetchingPlaylist(true);
     setFormatsError("");
-    setLastFetchedUrl(videoUrl);
-  };
 
-  useEffect(() => {
-    if (isSettingsOpen) {
-      void loadExtensionBridgeInfo();
+    try {
+      const info = await invoke<PlaylistInfo>("fetch_playlist_info", { url: videoUrl });
+      setPlaylistInfo(info);
+      setLastFetchedUrl(videoUrl);
+    } catch (error) {
+      console.error("Failed to fetch playlist info:", error);
+      setFormatsError(String(error));
+      setPlaylistInfo(null);
+    } finally {
+      setIsFetchingPlaylist(false);
     }
-  }, [isSettingsOpen]);
+  };
 
   const cancelDownload = async (downloadId: string) => {
     try {
@@ -698,13 +797,16 @@ export default function App() {
     }
   };
 
-  const addDownload = async () => {
-    if (!url || !selectedFormat) return;
+  const startSingleOrPlaylistDownload = async () => {
+    if (!trimmedUrl || !selectedFormat) return;
 
     const formatToUse = selectedFormat;
+    const subtitlesToUse = formatToUse === "ba/b" ? false : withSubtitles;
     setIsProcessing(true);
+    setCurrentView("active");
+    setActivePage(1);
 
-    if (isPlaylist && playlistInfo && playlistInfo.entries.length > 0) {
+    if (urlType === "playlist" && playlistInfo && playlistInfo.entries.length > 0) {
       const newDownloads: DownloadItem[] = playlistInfo.entries.map((video) => ({
         id: Math.random().toString(36).substring(7),
         url: video.url,
@@ -716,10 +818,12 @@ export default function App() {
         size: "Unknown",
         logs: [],
         isLogsOpen: false,
+        format: formatToUse,
+        subtitles: subtitlesToUse,
       }));
 
       setDownloads((previous) => [...newDownloads, ...previous]);
-      resetSingleUrlComposer();
+      clearComposer();
 
       for (const download of newDownloads) {
         try {
@@ -728,7 +832,7 @@ export default function App() {
             url: download.url,
             downloadDir: savePath,
             formatString: formatToUse,
-            subtitles: withSubtitles,
+            subtitles: subtitlesToUse,
             useAria2c,
           });
         } catch (error) {
@@ -745,14 +849,14 @@ export default function App() {
       return;
     }
 
-    const manualUrl = url;
-    resetSingleUrlComposer();
+    const manualUrl = trimmedUrl;
+    clearComposer();
 
     try {
       await startSingleDownload({
         downloadUrl: manualUrl,
         formatString: formatToUse,
-        subtitles: withSubtitles,
+        subtitles: subtitlesToUse,
         downloadDirPath: savePath,
         useAria2c,
       });
@@ -761,104 +865,134 @@ export default function App() {
     }
   };
 
-  const refreshExtensionBridge = async () => {
-    await loadExtensionBridgeInfo();
+  const setPresetDate = (preset: "1h" | "3h" | "Tonight" | "Tomorrow") => {
+    const now = new Date();
+    const target = new Date();
+
+    if (preset === "1h") target.setHours(now.getHours() + 1);
+    if (preset === "3h") target.setHours(now.getHours() + 3);
+    if (preset === "Tonight") {
+      target.setHours(22, 0, 0, 0);
+      if (target <= now) {
+        target.setDate(target.getDate() + 1);
+      }
+    }
+    if (preset === "Tomorrow") {
+      target.setDate(now.getDate() + 1);
+      target.setHours(9, 0, 0, 0);
+    }
+
+    setScheduledTime(toLocalDateTimeValue(target));
   };
 
-  const applyScheduledQuickTime = (hours: number) => {
-    const date = new Date();
-    if (hours === -1) {
-      date.setHours(22, 0, 0, 0);
-      if (date <= new Date()) {
-        date.setDate(date.getDate() + 1);
-      }
-    } else {
-      date.setHours(date.getHours() + hours);
+  const handlePrimaryAction = () => {
+    if (!canSubmit) return;
+    if (isScheduling) {
+      queueScheduledDownloads();
+      return;
     }
-    setScheduledTime(date.toISOString().slice(0, 16));
+    if (isBatchMode) {
+      void startBatchDownload();
+      return;
+    }
+    void startSingleOrPlaylistDownload();
+  };
+
+  const handleSelectFolder = () => {
+    void selectFolder();
+  };
+
+  const handleCancelDownload = (id: string) => {
+    void cancelDownload(id);
+  };
+
+  const sharedLayoutProps = {
+    extensionActivity,
+    savePath,
+    url,
+    urlType,
+    urlLines,
+    selectedQualityId,
+    subtitlesEnabled,
+    isAudioOnly,
+    isScheduling,
+    scheduledTime,
+    canSubmit,
+    isProcessing,
+    playlistInfo,
+    isFetchingPlaylist,
+    formatsError,
+    currentView,
+    onUrlChange: handleUrlChange,
+    onSelectQualityId: handleSelectQualityId,
+    onToggleSubtitles: handleToggleSubtitles,
+    onScheduledTimeChange: setScheduledTime,
+    onSetPresetDate: setPresetDate,
+    onPrimaryAction: handlePrimaryAction,
+    onToggleScheduling: () => setIsScheduling((value) => !value),
+    onChangeView: (view: "active" | "history") => setCurrentView(view),
+    onOpenFolder: openFolder,
+    onOpenSettings: () => setIsSettingsOpen(true),
+    onSelectFolder: handleSelectFolder,
+    onStartDrag: startWindowDrag,
+    onMinimize: () => {
+      void minimizeWindow();
+    },
+    onToggleMaximize: () => {
+      void toggleMaximizeWindow();
+    },
+    onCloseWindow: () => {
+      void closeWindow();
+    },
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-slate-950 text-slate-200">
-      <AppHeader
-        extensionActivity={extensionActivity}
-        savePath={savePath}
-        onOpenFolder={openFolder}
-        onSelectFolder={selectFolder}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onStartDrag={startWindowDrag}
-        onToggleMaximize={toggleMaximizeWindow}
-        onMinimize={minimizeWindow}
-        onClose={closeWindow}
-      />
-
-      <main className="mx-auto flex-1 w-full max-w-5xl space-y-8 p-6">
-        <ComposerSection
+    <div className={isDarkMode ? "dark" : ""}>
+      {uiPreset === "notion" ? (
+        <NotionDashboard
+          {...sharedLayoutProps}
+          isDarkMode={isDarkMode}
+          versionLabel={versionLabel}
+          extensionStatusLabel={extensionStatusLabel}
+          activeCount={queuedDownloads.length}
+          activeItems={activeItems}
+          historyItems={historyItems}
+          activePagination={{
+            currentPage: activePage,
+            totalPages: activeTotalPages,
+            totalItems: queuedDownloads.length,
+            pageItemsCount: activeItems.length,
+            itemsPerPage: ITEMS_PER_PAGE,
+            onPageChange: setActivePage,
+          }}
+          historyPagination={{
+            currentPage: historyPage,
+            totalPages: historyTotalPages,
+            totalItems: history.length,
+            pageItemsCount: historyItems.length,
+            itemsPerPage: ITEMS_PER_PAGE,
+            onPageChange: setHistoryPage,
+          }}
           fileInputRef={fileInputRef}
-          url={url}
-          lastFetchedUrl={lastFetchedUrl}
-          selectedFormat={selectedFormat}
-          withSubtitles={withSubtitles}
-          formatsError={formatsError}
-          isFetchingFormats={false}
-          isFetchingPlaylist={isFetchingPlaylist}
-          isPlaylist={isPlaylist}
-          playlistInfo={playlistInfo}
-          isBatchMode={isBatchMode}
-          batchUrls={batchUrls}
-          batchQualityId={batchQualityId}
-          batchWithSubtitles={batchWithSubtitles}
-          isBatchAudioOnly={isBatchAudioOnly}
-          isProcessing={isProcessing}
           onFileImport={handleFileImport}
-          onUrlChange={handleUrlChange}
-          onOpenSchedule={() => setIsScheduleModalOpen(true)}
-          onSubmit={addDownload}
-          onExitBatchMode={() => {
-            setBatchUrls([]);
-            setIsBatchMode(false);
-          }}
-          onBatchQualityChange={handleBatchQualityChange}
-          onBatchSubtitlesChange={setBatchWithSubtitles}
-          onStartBatchDownload={startBatchDownload}
-          onSelectFormat={(format, includeSubtitles) => {
-            setSelectedFormat(format);
-            setWithSubtitles(includeSubtitles);
-          }}
+          onToggleDarkMode={() => setIsDarkMode((value) => !value)}
+          onCancelDownload={handleCancelDownload}
+          onToggleHistoryLogs={toggleHistoryLogs}
         />
-
-        <DownloadsSection
-          downloads={downloads}
+      ) : (
+        <GlassDashboard
+          {...sharedLayoutProps}
+          activeDownloads={activeDownloads}
+          scheduledDownloads={scheduledDownloads}
           history={history}
-          showHistory={showHistory}
-          downloadsPage={downloadsPage}
-          historyPage={historyPage}
-          onShowActive={() => {
-            setShowHistory(false);
-            setDownloadsPage(1);
-          }}
-          onShowHistory={() => {
-            setShowHistory(true);
-            setHistoryPage(1);
-          }}
-          onChangeDownloadsPage={setDownloadsPage}
-          onChangeHistoryPage={setHistoryPage}
-          onClearHistory={() => {
-            clearHistory();
-            setHistoryPage(1);
-          }}
+          onCancelDownload={handleCancelDownload}
           onCancelScheduledDownload={cancelScheduledDownload}
-          onCancelDownload={cancelDownload}
           onToggleDownloadLogs={toggleDownloadLogs}
           onToggleHistoryLogs={toggleHistoryLogs}
           onRemoveFromHistory={removeFromHistory}
-          onOpenFolder={openFolder}
+          onClearHistory={clearHistory}
         />
-      </main>
-
-      <footer className="border-t border-slate-800 bg-slate-900/30 p-4 text-center text-[10px] text-slate-600">
-        Powered by yt-dlp, Tauri, Bun, and Rust
-      </footer>
+      )}
 
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -870,32 +1004,15 @@ export default function App() {
         isUpdating={isUpdating}
         updateError={updateError}
         extensionBridgeInfo={extensionBridgeInfo}
+        interfacePresets={interfacePresets}
         onClose={() => setIsSettingsOpen(false)}
         onToggleAria2c={() => setUseAria2c((value) => !value)}
         onCheckUpdate={checkYtdlpUpdate}
         onUpdateYtdlp={updateYtdlp}
         onToggleAutoUpdate={() => setAutoUpdateYtdlp((value) => !value)}
-        onRefreshExtensionBridge={refreshExtensionBridge}
-      />
-
-      <ScheduleModal
-        isOpen={isScheduleModalOpen}
-        isBatchMode={isBatchMode}
-        batchUrls={batchUrls}
-        url={url}
-        batchQualityId={batchQualityId}
-        batchWithSubtitles={batchWithSubtitles}
-        isBatchAudioOnly={isBatchAudioOnly}
-        selectedFormat={selectedFormat}
-        defaultFormat={DEFAULT_FORMAT_STRING}
-        scheduledTime={scheduledTime}
-        onClose={() => setIsScheduleModalOpen(false)}
-        onSchedule={scheduleDownload}
-        onBatchQualityChange={handleBatchQualityChange}
-        onBatchSubtitlesChange={setBatchWithSubtitles}
-        onSingleFormatChange={setSelectedFormat}
-        onScheduledTimeChange={setScheduledTime}
-        onApplyQuickTime={applyScheduledQuickTime}
+        onRefreshExtensionBridge={() => {
+          void loadExtensionBridgeInfo();
+        }}
       />
     </div>
   );
