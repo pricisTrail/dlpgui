@@ -1,7 +1,18 @@
-# Tauri + React + Typescript
+# dlp-gui
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Tauri + React desktop app for `yt-dlp`, with a local Chrome companion bridge.
 
-## Recommended IDE Setup
+## Development
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- `bun run dev`
+- `bun run tauri dev`
+
+## Chrome Companion
+
+The app now exposes a local bridge on `http://127.0.0.1:46321` for the unpacked extension in [`extension/chrome`](extension/chrome/README.md).
+
+Load that folder in `chrome://extensions` to get:
+
+- a toolbar action that sends the current tab to the app
+- a watch-page quick action on YouTube
+- small `dlp` buttons injected next to YouTube card menus

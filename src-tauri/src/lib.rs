@@ -1,16 +1,54 @@
-use tauri::{AppHandle, Emitter};
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, WindowEvent,
+};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri_plugin_shell::process::CommandChild;
 use std::path::PathBuf;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+const EXTENSION_BRIDGE_HOST: &str = "127.0.0.1";
+const EXTENSION_BRIDGE_PORT: u16 = 46321;
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_OPEN_ID: &str = "tray-open";
+const TRAY_QUIT_ID: &str = "tray-quit";
+
+static EXTENSION_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
 
 // Global storage for active download processes
 lazy_static::lazy_static! {
     static ref ACTIVE_DOWNLOADS: Arc<Mutex<HashMap<String, CommandChild>>> = Arc::new(Mutex::new(HashMap::new()));
+    static ref EXTENSION_BRIDGE_ERROR: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    static ref PENDING_EXTENSION_REQUESTS: Arc<Mutex<Vec<ExtensionDownloadRequest>>> = Arc::new(Mutex::new(Vec::new()));
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct ExtensionDownloadRequest {
+    request_id: String,
+    url: String,
+    title: Option<String>,
+    source: Option<String>,
+    page_url: Option<String>,
+    format_string: Option<String>,
+    quality_label: Option<String>,
+    subtitles: Option<bool>,
+}
+
+#[derive(Clone, Serialize, Debug)]
+struct ExtensionBridgeInfo {
+    endpoint: String,
+    host: String,
+    port: u16,
+    ready: bool,
+    error: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -79,6 +117,280 @@ fn format_size(bytes: u64, is_estimate: bool) -> String {
         format!("{}{:.2} KB", prefix, bytes as f64 / KB as f64)
     } else {
         format!("{}{} B", prefix, bytes)
+    }
+}
+
+fn extension_bridge_endpoint() -> String {
+    format!("http://{}:{}", EXTENSION_BRIDGE_HOST, EXTENSION_BRIDGE_PORT)
+}
+
+fn set_extension_bridge_error(error: Option<String>) {
+    if let Ok(mut state) = EXTENSION_BRIDGE_ERROR.lock() {
+        *state = error;
+    }
+}
+
+fn build_extension_bridge_info() -> ExtensionBridgeInfo {
+    let error = EXTENSION_BRIDGE_ERROR
+        .lock()
+        .ok()
+        .and_then(|state| state.clone());
+
+    ExtensionBridgeInfo {
+        endpoint: extension_bridge_endpoint(),
+        host: EXTENSION_BRIDGE_HOST.to_string(),
+        port: EXTENSION_BRIDGE_PORT,
+        ready: EXTENSION_BRIDGE_READY.load(Ordering::Relaxed),
+        error,
+    }
+}
+
+fn find_header_terminator(buffer: &[u8]) -> Option<usize> {
+    buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|index| index + 4)
+}
+
+async fn write_bridge_response(
+    stream: &mut TcpStream,
+    status: &str,
+    body: &str,
+) -> Result<(), String> {
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\n\r\n{body}",
+        body.as_bytes().len()
+    );
+
+    stream
+        .write_all(response.as_bytes())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn handle_extension_bridge_connection(
+    mut stream: TcpStream,
+    app: AppHandle,
+) -> Result<(), String> {
+    let mut buffer = Vec::with_capacity(4096);
+    let mut header_end = None;
+
+    loop {
+        let mut chunk = [0u8; 2048];
+        let read = stream.read(&mut chunk).await.map_err(|e| e.to_string())?;
+        if read == 0 {
+            break;
+        }
+
+        buffer.extend_from_slice(&chunk[..read]);
+        if buffer.len() > 64 * 1024 {
+            return write_bridge_response(
+                &mut stream,
+                "413 Payload Too Large",
+                r#"{"ok":false,"error":"Request too large"}"#,
+            )
+            .await;
+        }
+
+        if let Some(end) = find_header_terminator(&buffer) {
+            header_end = Some(end);
+            break;
+        }
+    }
+
+    let header_end = match header_end {
+        Some(value) => value,
+        None => {
+            return write_bridge_response(
+                &mut stream,
+                "400 Bad Request",
+                r#"{"ok":false,"error":"Malformed request"}"#,
+            )
+            .await;
+        }
+    };
+
+    let header_text = String::from_utf8_lossy(&buffer[..header_end]).to_string();
+    let mut lines = header_text.split("\r\n");
+    let request_line = lines.next().unwrap_or_default().to_string();
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or_default().to_string();
+    let path = request_parts.next().unwrap_or_default().to_string();
+
+    let mut content_length = 0usize;
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse::<usize>().unwrap_or(0);
+            }
+        }
+    }
+
+    while buffer.len() < header_end + content_length {
+        let mut chunk = [0u8; 2048];
+        let read = stream.read(&mut chunk).await.map_err(|e| e.to_string())?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+    }
+
+    let body = if content_length == 0 || buffer.len() < header_end + content_length {
+        &[][..]
+    } else {
+        &buffer[header_end..header_end + content_length]
+    };
+
+    match (method.as_str(), path.as_str()) {
+        ("OPTIONS", _) => {
+            write_bridge_response(&mut stream, "204 No Content", "").await?;
+        }
+        ("GET", "/health") => {
+            let body = serde_json::json!({
+                "ok": true,
+                "app": "dlp-gui",
+                "bridge": build_extension_bridge_info(),
+            })
+            .to_string();
+            write_bridge_response(&mut stream, "200 OK", &body).await?;
+        }
+        ("POST", "/download") => {
+            let request: ExtensionDownloadRequest = serde_json::from_slice(body)
+                .map_err(|e| format!("Invalid extension payload: {}", e))?;
+
+            let trimmed_url = request.url.trim();
+            if !(trimmed_url.starts_with("http://") || trimmed_url.starts_with("https://")) {
+                write_bridge_response(
+                    &mut stream,
+                    "400 Bad Request",
+                    r#"{"ok":false,"error":"Only http and https URLs are supported"}"#,
+                )
+                .await?;
+                return Ok(());
+            }
+
+            let normalized_request = ExtensionDownloadRequest {
+                url: trimmed_url.to_string(),
+                ..request
+            };
+
+            if let Ok(mut queue) = PENDING_EXTENSION_REQUESTS.lock() {
+                queue.push(normalized_request.clone());
+            }
+
+            let _ = app.emit("extension-download-request", normalized_request.clone());
+
+            let body = serde_json::json!({
+                "ok": true,
+                "status": "queued",
+                "request_id": normalized_request.request_id,
+            })
+            .to_string();
+            write_bridge_response(&mut stream, "202 Accepted", &body).await?;
+        }
+        _ => {
+            write_bridge_response(
+                &mut stream,
+                "404 Not Found",
+                r#"{"ok":false,"error":"Unknown bridge route"}"#,
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+fn start_extension_bridge(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let bind_addr = format!("{}:{}", EXTENSION_BRIDGE_HOST, EXTENSION_BRIDGE_PORT);
+        match TcpListener::bind(&bind_addr).await {
+            Ok(listener) => {
+                EXTENSION_BRIDGE_READY.store(true, Ordering::Relaxed);
+                set_extension_bridge_error(None);
+                println!("[bridge] Chrome extension bridge listening on {}", bind_addr);
+
+                loop {
+                    match listener.accept().await {
+                        Ok((stream, _)) => {
+                            let app_handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(err) = handle_extension_bridge_connection(stream, app_handle).await {
+                                    println!("[bridge] Request failed: {}", err);
+                                }
+                            });
+                        }
+                        Err(err) => {
+                            println!("[bridge] Accept failed: {}", err);
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                let message = format!("Failed to bind extension bridge on {}: {}", bind_addr, err);
+                EXTENSION_BRIDGE_READY.store(false, Ordering::Relaxed);
+                set_extension_bridge_error(Some(message.clone()));
+                println!("[bridge] {}", message);
+            }
+        }
+    });
+}
+
+fn restore_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn create_tray(app: &AppHandle) -> tauri::Result<()> {
+    let open_item = MenuItemBuilder::with_id(TRAY_OPEN_ID, "Open yt-dlp GUI").build(app)?;
+    let quit_item = MenuItemBuilder::with_id(TRAY_QUIT_ID, "Quit").build(app)?;
+    let menu = MenuBuilder::new(app)
+        .items(&[&open_item, &quit_item])
+        .build()?;
+
+    let mut tray = TrayIconBuilder::with_id("main-tray")
+        .menu(&menu)
+        .tooltip("yt-dlp GUI")
+        .show_menu_on_left_click(false);
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray = tray.icon(icon);
+    }
+
+    tray
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_OPEN_ID => restore_main_window(app),
+            TRAY_QUIT_ID => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|_tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                restore_main_window(_tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn get_extension_bridge_info() -> ExtensionBridgeInfo {
+    build_extension_bridge_info()
+}
+
+#[tauri::command]
+fn take_extension_download_requests() -> Vec<ExtensionDownloadRequest> {
+    match PENDING_EXTENSION_REQUESTS.lock() {
+        Ok(mut queue) => std::mem::take(&mut *queue),
+        Err(_) => Vec::new(),
     }
 }
 
@@ -415,6 +727,8 @@ async fn start_download(
     println!("[DEBUG] URL: {}", url);
     println!("[DEBUG] Format: {}", format_string);
     println!("[DEBUG] Use aria2c: {}", use_aria2c);
+
+    let is_audio_only = format_string == "ba/b";
     
     let output_template = "%(title)s.%(ext)s".to_string();
     let home_path = format!("home:{}", download_dir);
@@ -440,9 +754,6 @@ async fn start_download(
         "ejs:github".to_string(),
         "--ffmpeg-location".to_string(),
         ffmpeg_path,
-        "--merge-output-format".to_string(),
-        "mp4".to_string(),
-        "--embed-thumbnail".to_string(),
         "--no-keep-fragments".to_string(),
         "-P".to_string(),
         home_path,
@@ -453,6 +764,12 @@ async fn start_download(
         "-o".to_string(),
         output_template,
     ];
+
+    if !is_audio_only {
+        args.push("--merge-output-format".to_string());
+        args.push("mp4".to_string());
+        args.push("--embed-thumbnail".to_string());
+    }
 
     // Add extractor args based on download method
     let extractor_skip = if subtitles {
@@ -506,7 +823,9 @@ async fn start_download(
     if subtitles {
         args.push("--write-subs".to_string());
         args.push("--write-auto-sub".to_string());
-        args.push("--embed-subs".to_string());
+        if !is_audio_only {
+            args.push("--embed-subs".to_string());
+        }
         args.push("--sub-langs".to_string());
         // Keep subtitle requests to a small exact English fallback set.
         args.push("en,en-US,en-GB,en-orig,-live_chat".to_string());
@@ -1051,11 +1370,36 @@ async fn open_folder(path: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            start_extension_bridge(app.handle().clone());
+            create_tray(&app.handle())?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != MAIN_WINDOW_LABEL {
+                return;
+            }
+
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![start_download, fetch_formats, fetch_playlist_info, cancel_download, check_ytdlp_update, update_ytdlp, open_folder])
+        .invoke_handler(tauri::generate_handler![
+            start_download,
+            fetch_formats,
+            fetch_playlist_info,
+            cancel_download,
+            check_ytdlp_update,
+            update_ytdlp,
+            open_folder,
+            get_extension_bridge_info,
+            take_extension_download_requests
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

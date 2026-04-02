@@ -162,6 +162,25 @@ interface BatchQualityOption {
   format: string;
 }
 
+interface ExtensionDownloadRequest {
+  request_id: string;
+  url: string;
+  title?: string;
+  source?: string;
+  page_url?: string;
+  format_string?: string;
+  quality_label?: string;
+  subtitles?: boolean;
+}
+
+interface ExtensionBridgeInfo {
+  endpoint: string;
+  host: string;
+  port: number;
+  ready: boolean;
+  error?: string | null;
+}
+
 const MAX_LOG_LINES_PER_DOWNLOAD = 300;
 const PROGRESS_UPDATE_INTERVAL_MS = 150;
 const MIN_PROGRESS_DELTA = 0.25;
@@ -218,11 +237,20 @@ export default function App() {
     const saved = localStorage.getItem('autoUpdateYtdlp');
     return saved !== null ? JSON.parse(saved) : false;
   });
+  const [extensionBridgeInfo, setExtensionBridgeInfo] = useState<ExtensionBridgeInfo | null>(null);
+  const [extensionActivity, setExtensionActivity] = useState<string>("");
   
   // Pagination state
   const [downloadsPage, setDownloadsPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
   const ITEMS_PER_PAGE = 5;
+  const extensionDefaultsRef = useRef({
+    savePath: "",
+    formatString: defaultFormat,
+    subtitles: false,
+    useAria2c: true,
+  });
+  const handledExtensionRequestsRef = useRef<Set<string>>(new Set());
 
   // Helper function to detect if URL is a playlist (not a video with playlist reference)
   const isPlaylistUrl = (urlString: string): boolean => {
@@ -257,6 +285,134 @@ export default function App() {
     }
   };
 
+  const resetSingleUrlComposer = () => {
+    setUrl("");
+    setFormats([]);
+    setSelectedFormat("");
+    setWithSubtitles(false);
+    setLastFetchedUrl("");
+    setIsPlaylist(false);
+    setPlaylistInfo(null);
+  };
+
+  const loadExtensionBridgeInfo = async () => {
+    try {
+      const info = await invoke<ExtensionBridgeInfo>("get_extension_bridge_info");
+      setExtensionBridgeInfo(info);
+    } catch (error) {
+      console.error("Failed to load extension bridge info:", error);
+      setExtensionBridgeInfo({
+        endpoint: "http://127.0.0.1:46321",
+        host: "127.0.0.1",
+        port: 46321,
+        ready: false,
+        error: String(error),
+      });
+    }
+  };
+
+  const startSingleDownload = async ({
+    downloadUrl,
+    downloadTitle,
+    formatString,
+    subtitles,
+    downloadDir,
+    useAria2c: shouldUseAria2c,
+  }: {
+    downloadUrl: string;
+    downloadTitle?: string;
+    formatString: string;
+    subtitles: boolean;
+    downloadDir: string;
+    useAria2c: boolean;
+  }) => {
+    const id = Math.random().toString(36).substring(7);
+
+    const newDownload: DownloadItem = {
+      id,
+      url: downloadUrl,
+      title: downloadTitle || downloadUrl.split('/').pop() || "Video",
+      status: 'pending',
+      progress: 0,
+      speed: "0 KB/s",
+      eta: "N/A",
+      size: "Unknown",
+      logs: [],
+      isLogsOpen: false
+    };
+
+    setDownloads((prev) => [newDownload, ...prev]);
+
+    try {
+      await invoke("start_download", {
+        id,
+        url: downloadUrl,
+        downloadDir,
+        formatString,
+        subtitles,
+        useAria2c: shouldUseAria2c,
+      });
+    } catch (error) {
+      console.error("Failed to start download:", error);
+      setDownloads((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, status: 'error' } : item
+        )
+      );
+      throw error;
+    }
+  };
+
+  const processExtensionDownloadRequest = async (request: ExtensionDownloadRequest) => {
+    if (!request?.request_id || handledExtensionRequestsRef.current.has(request.request_id)) {
+      return;
+    }
+
+    handledExtensionRequestsRef.current.add(request.request_id);
+
+    const defaults = extensionDefaultsRef.current;
+    if (!defaults.savePath) {
+      setExtensionActivity("Chrome request received before the download folder was ready.");
+      return;
+    }
+
+    const sourceLabel = request.source ? ` from ${request.source}` : "";
+    const qualityLabel = request.quality_label ? ` • ${request.quality_label}` : "";
+    setExtensionActivity(`Queued${sourceLabel}${qualityLabel}: ${request.title || request.url}`);
+
+    try {
+      await startSingleDownload({
+        downloadUrl: request.url,
+        downloadTitle: request.title,
+        formatString: request.format_string || defaults.formatString,
+        subtitles: request.subtitles ?? defaults.subtitles,
+        downloadDir: defaults.savePath,
+        useAria2c: defaults.useAria2c,
+      });
+    } catch {
+      setExtensionActivity(`Chrome handoff failed: ${request.title || request.url}`);
+    }
+  };
+
+  useEffect(() => {
+    extensionDefaultsRef.current = {
+      savePath,
+      formatString: selectedFormat || defaultFormat,
+      subtitles: withSubtitles,
+      useAria2c,
+    };
+  }, [defaultFormat, savePath, selectedFormat, useAria2c, withSubtitles]);
+
+  useEffect(() => {
+    if (!extensionActivity) return;
+
+    const timer = window.setTimeout(() => {
+      setExtensionActivity("");
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, [extensionActivity]);
+
   // Load persistent data on mount
   useEffect(() => {
     const savedPath = localStorage.getItem('downloadPath');
@@ -276,6 +432,17 @@ export default function App() {
       } else {
         const dir = await downloadDir();
         setSavePath(dir);
+      }
+
+      await loadExtensionBridgeInfo();
+
+      try {
+        const pendingRequests = await invoke<ExtensionDownloadRequest[]>("take_extension_download_requests");
+        for (const request of pendingRequests) {
+          void processExtensionDownloadRequest(request);
+        }
+      } catch (error) {
+        console.error("Failed to load pending extension requests:", error);
       }
     };
     initPath();
@@ -370,11 +537,16 @@ export default function App() {
       );
     });
 
+    const unlistenExtensionRequests = listen<ExtensionDownloadRequest>("extension-download-request", (event) => {
+      void processExtensionDownloadRequest(event.payload);
+    });
+
     return () => {
       unlistenProgress.then((u) => u());
       unlistenStatus.then((u) => u());
       unlistenLogs.then((u) => u());
       unlistenTitle.then((u) => u());
+      unlistenExtensionRequests.then((u) => u());
     };
   }, []);
 
@@ -716,6 +888,11 @@ export default function App() {
     autoUpdate();
   }, []); // Only run once on mount
 
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    void refreshExtensionBridge();
+  }, [isSettingsOpen]);
+
   const cancelDownload = async (downloadId: string) => {
     try {
       await invoke("cancel_download", { id: downloadId });
@@ -766,14 +943,7 @@ export default function App() {
       // Add all downloads to state
       setDownloads(prev => [...newDownloads, ...prev]);
       
-      // Clear inputs
-      setUrl("");
-      setFormats([]);
-      setSelectedFormat("");
-      setWithSubtitles(false);
-      setLastFetchedUrl("");
-      setIsPlaylist(false);
-      setPlaylistInfo(null);
+      resetSingleUrlComposer();
       
       // Start downloads sequentially to avoid overwhelming the system
       for (const download of newDownloads) {
@@ -801,49 +971,26 @@ export default function App() {
     }
     
     // Single video download
-    const id = Math.random().toString(36).substring(7);
-    
-    const newDownload: DownloadItem = {
-      id,
-      url,
-      title: url.split('/').pop() || "Video",
-      status: 'pending',
-      progress: 0,
-      speed: "0 KB/s",
-      eta: "N/A",
-      size: "Unknown",
-      logs: [],
-      isLogsOpen: false
-    };
-
-    setDownloads([newDownload, ...downloads]);
-    setUrl("");
-    setFormats([]);
-    setSelectedFormat("");
-    setWithSubtitles(false);
-    setLastFetchedUrl("");
-    setIsPlaylist(false);
-    setPlaylistInfo(null);
+    const manualUrl = url;
+    resetSingleUrlComposer();
 
     try {
-      await invoke("start_download", {
-        id,
-        url,
-        downloadDir: savePath,
+      await startSingleDownload({
+        downloadUrl: manualUrl,
         formatString: formatToUse,
         subtitles: withSubtitles,
-        useAria2c: useAria2c,
+        downloadDir: savePath,
+        useAria2c,
       });
-    } catch (error) {
-      console.error("Failed to start download:", error);
-      setDownloads((prev) =>
-        prev.map((item) =>
-          item.id === id ? { ...item, status: 'error' } : item
-        )
-      );
+    } catch {
+      // Error state is handled inside startSingleDownload.
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const refreshExtensionBridge = async () => {
+    await loadExtensionBridgeInfo();
   };
 
   const minimizeWindow = async () => {
@@ -883,7 +1030,14 @@ export default function App() {
             <div className="bg-indigo-600 p-2 rounded-lg">
               <Download className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight">yt-dlp GUI</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight">yt-dlp GUI</h1>
+              <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                {extensionActivity && (
+                  <span className="truncate text-slate-400">{extensionActivity}</span>
+                )}
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 bg-slate-800/50 px-3 py-1.5 rounded-lg border border-slate-700">
@@ -929,7 +1083,7 @@ export default function App() {
           <button
             onClick={closeWindow}
             className="flex h-10 w-12 items-center justify-center text-slate-400 hover:bg-rose-600 hover:text-white transition-colors"
-            title="Close"
+            title="Hide to tray"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1793,6 +1947,46 @@ export default function App() {
                       autoUpdateYtdlp ? "translate-x-5" : "translate-x-0.5"
                     )} />
                   </button>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-sm">Chrome Extension Bridge</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Loopback API for the companion extension in <span className="font-mono">extension/chrome</span>.
+                    </div>
+                  </div>
+                  <button
+                    onClick={refreshExtensionBridge}
+                    className="text-xs text-indigo-400 hover:text-indigo-300"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 text-xs space-y-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-slate-500">Endpoint</span>
+                    <span className="font-mono text-slate-300">{extensionBridgeInfo?.endpoint || "http://127.0.0.1:46321"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-slate-500">Status</span>
+                    <span className={cn("font-medium", extensionBridgeInfo?.ready ? "text-emerald-400" : "text-amber-400")}>
+                      {extensionBridgeInfo?.ready ? "Listening for Chrome" : "Not available"}
+                    </span>
+                  </div>
+                  {extensionBridgeInfo?.error && (
+                    <div className="rounded-md bg-amber-500/10 px-2 py-1 text-amber-300">
+                      {extensionBridgeInfo.error}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-xs text-slate-500 space-y-1">
+                  <div>Toolbar clicks send the active tab straight to the app.</div>
+                  <div>YouTube pages also get a branded quick action on cards and watch pages.</div>
                 </div>
               </div>
             </div>
