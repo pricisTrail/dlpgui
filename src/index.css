@@ -137,6 +137,23 @@ select {
   font-size: 22px;
 }
 
+.themed-toggle[data-size="sm"] label {
+  width: 2.05em;
+}
+
+.themed-toggle[data-size="sm"] input[type="checkbox"]:checked {
+  left: 1.15em;
+}
+
+.themed-toggle[data-size="sm"] input[type="checkbox"]:checked + label::before,
+.themed-toggle[data-size="sm"] input[type="checkbox"]:checked + label::after {
+  left: 2.38em;
+}
+
+.themed-toggle[data-size="sm"] input[type="checkbox"]:checked + label::after {
+  left: 2.43em;
+}
+
 .themed-toggle[data-size="md"] {
   font-size: 25px;
 }
