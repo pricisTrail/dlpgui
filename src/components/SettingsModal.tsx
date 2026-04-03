@@ -7,6 +7,7 @@ import {
   X,
 } from "lucide-react";
 
+import { ToggleSwitch } from "./ToggleSwitch";
 import type { ExtensionBridgeInfo } from "../lib/types";
 import { cn } from "../lib/utils";
 
@@ -19,6 +20,8 @@ export interface InterfacePreset {
 
 interface SettingsModalProps {
   isOpen: boolean;
+  layoutPreset: "glass" | "notion";
+  isDarkMode: boolean;
   useAria2c: boolean;
   autoUpdateYtdlp: boolean;
   ytdlpVersion: string;
@@ -39,6 +42,8 @@ interface SettingsModalProps {
 
 export function SettingsModal({
   isOpen,
+  layoutPreset,
+  isDarkMode,
   useAria2c,
   autoUpdateYtdlp,
   ytdlpVersion,
@@ -58,28 +63,150 @@ export function SettingsModal({
 }: SettingsModalProps) {
   if (!isOpen) return null;
 
+  const isGlassLayout = layoutPreset === "glass";
+  const isLightMode = !isDarkMode;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 p-4 backdrop-blur-sm dark:bg-[#0F0F0F]/80">
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-[#EAEAEA] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-colors dark:border-[#2A2A2A] dark:bg-[#141414] dark:shadow-[0_8px_30px_rgba(0,0,0,0.4)]">
-        <div className="flex items-center justify-between border-b border-[#EAEAEA] px-6 py-4 transition-colors dark:border-[#2A2A2A]">
-          <h2 className="flex items-center gap-2 font-serif text-xl tracking-tight text-[#111111] dark:text-[#EDEDED]">
-            <Settings className="h-5 w-5" />
-            Preferences
-          </h2>
+    <div
+      className={cn(
+        "fixed inset-0 z-50 flex items-center justify-center p-4",
+        isGlassLayout
+          ? isLightMode
+            ? "bg-[#f6f1e8]/70 backdrop-blur-xl"
+            : "bg-[#05060a]/72 backdrop-blur-xl"
+          : "bg-white/80 backdrop-blur-sm dark:bg-[#0F0F0F]/80",
+      )}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        className={cn(
+          "relative flex max-h-[84vh] w-full flex-col overflow-hidden transition-colors",
+          isGlassLayout
+            ? cn(
+                "max-w-3xl rounded-[2rem] border backdrop-blur-3xl",
+                isLightMode
+                  ? "border-stone-300/80 bg-white/72 shadow-[inset_0_1px_0_rgba(255,255,255,0.85),0_28px_70px_-28px_rgba(120,101,79,0.42)]"
+                  : "border-white/10 bg-zinc-900/58 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_60px_-24px_rgba(0,0,0,0.65)]",
+              )
+            : "max-w-2xl rounded-xl border border-[#EAEAEA] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.04)] dark:border-[#2A2A2A] dark:bg-[#141414] dark:shadow-[0_8px_30px_rgba(0,0,0,0.4)]",
+        )}
+      >
+        {isGlassLayout && (
+          <>
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-x-0 top-0 h-44",
+                isLightMode
+                  ? "bg-[radial-gradient(circle_at_top_left,rgba(194,145,91,0.18),transparent_55%),radial-gradient(circle_at_top_right,rgba(132,169,140,0.16),transparent_42%)]"
+                  : "bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.12),transparent_50%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.14),transparent_45%)]",
+              )}
+            />
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-0 opacity-[0.03] [background-image:linear-gradient(rgba(68,64,60,0.24)_1px,transparent_1px),linear-gradient(90deg,rgba(68,64,60,0.24)_1px,transparent_1px)] [background-size:72px_72px]",
+                !isLightMode &&
+                  "opacity-[0.04] [background-image:linear-gradient(rgba(255,255,255,0.18)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.18)_1px,transparent_1px)]",
+              )}
+            />
+          </>
+        )}
+
+        <div
+          className={cn(
+            "relative flex items-center justify-between px-6 py-4 transition-colors",
+            isGlassLayout
+              ? isLightMode
+                ? "border-b border-stone-300/70"
+                : "border-b border-white/10"
+              : "border-b border-[#EAEAEA] dark:border-[#2A2A2A]",
+          )}
+        >
+          <div>
+            {isGlassLayout && (
+              <p
+                className={cn(
+                  "mb-1 text-[10px] font-bold uppercase tracking-[0.28em]",
+                  isLightMode ? "text-stone-500" : "text-zinc-500",
+                )}
+              >
+                Control room
+              </p>
+            )}
+            <h2
+              className={cn(
+                "flex items-center gap-2 tracking-tight",
+                isGlassLayout
+                  ? isLightMode
+                    ? "font-serif text-[1.65rem] text-stone-900"
+                    : "font-serif text-[1.65rem] text-zinc-50"
+                  : "font-serif text-xl text-[#111111] dark:text-[#EDEDED]",
+              )}
+            >
+              <Settings className="h-5 w-5" />
+              Preferences
+            </h2>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-[#787774] transition-colors hover:text-[#111111] dark:text-[#888888] dark:hover:text-[#EDEDED]"
+            className={cn(
+              "transition-colors",
+              isGlassLayout
+                ? isLightMode
+                  ? "text-stone-500 hover:text-stone-900"
+                  : "text-zinc-500 hover:text-zinc-100"
+                : "text-[#787774] hover:text-[#111111] dark:text-[#888888] dark:hover:text-[#EDEDED]",
+            )}
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="settings-scroll flex max-h-[60vh] flex-col gap-8 overflow-y-auto p-6">
-          <div className="space-y-4">
-            <h3 className="text-xs font-mono uppercase tracking-[0.22em] text-[#787774] dark:text-[#888888]">
-              Interface presets
-            </h3>
+        <div className="settings-scroll relative flex max-h-[64vh] flex-col gap-6 overflow-y-auto p-6">
+          <div
+            className={cn(
+              "space-y-4",
+              isGlassLayout &&
+                (isLightMode
+                  ? "rounded-[1.75rem] border border-stone-300/80 bg-white/58 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+                  : "rounded-[1.75rem] border border-white/10 bg-zinc-950/38 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"),
+            )}
+          >
+            <div
+              className={cn(
+                isGlassLayout && "flex items-start justify-between gap-4",
+              )}
+            >
+              <div>
+                <h3
+                  className={cn(
+                    "text-xs font-mono uppercase tracking-[0.22em]",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-500"
+                        : "text-zinc-500"
+                      : "text-[#787774] dark:text-[#888888]",
+                  )}
+                >
+                  Interface presets
+                </h3>
+                {isGlassLayout && (
+                  <p
+                    className={cn(
+                      "mt-2 max-w-md text-sm",
+                      isLightMode ? "text-stone-600" : "text-zinc-400",
+                    )}
+                  >
+                    Switch the shell language without falling back to the
+                    workspace list styling.
+                  </p>
+                )}
+              </div>
+            </div>
             <div className="grid gap-3">
               {interfacePresets.map((preset) => (
                 <button
@@ -87,18 +214,44 @@ export function SettingsModal({
                   type="button"
                   onClick={() => onSwitchPreset(preset.id)}
                   className={cn(
-                    "w-full rounded-lg border p-4 text-left transition-all duration-200",
+                    "w-full text-left transition-all duration-200",
                     preset.status === "active"
-                      ? "border-[#111111] bg-[#F7F6F3] shadow-[0_0_0_1px_#111111] dark:border-[#EDEDED] dark:bg-[#1F1F1F] dark:shadow-[0_0_0_1px_#EDEDED]"
-                      : "border-[#EAEAEA] hover:border-[#CCCCCC] hover:bg-[#FBFBFA] dark:border-[#2A2A2A] dark:hover:border-[#444444] dark:hover:bg-[#1A1A1A]",
+                      ? isGlassLayout
+                        ? isLightMode
+                          ? "rounded-[1.4rem] border border-stone-400/90 bg-white/88 p-4 shadow-[0_18px_35px_-28px_rgba(68,64,60,0.55)]"
+                          : "rounded-[1.4rem] border border-white/15 bg-zinc-950/70 p-4 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.75)]"
+                        : "rounded-lg border border-[#111111] bg-[#F7F6F3] p-4 shadow-[0_0_0_1px_#111111] dark:border-[#EDEDED] dark:bg-[#1F1F1F] dark:shadow-[0_0_0_1px_#EDEDED]"
+                      : isGlassLayout
+                        ? isLightMode
+                          ? "rounded-[1.4rem] border border-stone-300/80 bg-white/52 p-4 hover:border-stone-400 hover:bg-white/72"
+                          : "rounded-[1.4rem] border border-white/8 bg-zinc-950/28 p-4 hover:border-white/15 hover:bg-zinc-950/45"
+                        : "rounded-lg border border-[#EAEAEA] p-4 hover:border-[#CCCCCC] hover:bg-[#FBFBFA] dark:border-[#2A2A2A] dark:hover:border-[#444444] dark:hover:bg-[#1A1A1A]",
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
+                      <p
+                        className={cn(
+                          "text-sm font-medium",
+                          isGlassLayout
+                            ? isLightMode
+                              ? "text-stone-900"
+                              : "text-zinc-100"
+                            : "text-[#111111] dark:text-[#EDEDED]",
+                        )}
+                      >
                         {preset.name}
                       </p>
-                      <p className="mt-1 text-xs text-[#787774] dark:text-[#888888]">
+                      <p
+                        className={cn(
+                          "mt-1 text-xs",
+                          isGlassLayout
+                            ? isLightMode
+                              ? "text-stone-600"
+                              : "text-zinc-400"
+                            : "text-[#787774] dark:text-[#888888]",
+                        )}
+                      >
                         {preset.description}
                       </p>
                     </div>
@@ -106,8 +259,16 @@ export function SettingsModal({
                       className={cn(
                         "rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-colors",
                         preset.status === "active"
-                          ? "bg-[#111111] text-white dark:bg-[#EDEDED] dark:text-[#111111]"
-                          : "bg-[#F7F6F3] text-[#787774] dark:bg-[#1F1F1F] dark:text-[#888888]",
+                          ? isGlassLayout
+                            ? isLightMode
+                              ? "bg-stone-900 text-stone-50"
+                              : "bg-zinc-100 text-zinc-950"
+                            : "bg-[#111111] text-white dark:bg-[#EDEDED] dark:text-[#111111]"
+                          : isGlassLayout
+                            ? isLightMode
+                              ? "bg-stone-100 text-stone-500"
+                              : "bg-zinc-800 text-zinc-400"
+                            : "bg-[#F7F6F3] text-[#787774] dark:bg-[#1F1F1F] dark:text-[#888888]",
                       )}
                     >
                       {preset.status}
@@ -116,48 +277,121 @@ export function SettingsModal({
                 </button>
               ))}
             </div>
-            <p className="text-xs text-[#787774] dark:text-[#888888]">
-              Click a preset to switch the interface layout. Your preference is saved automatically.
+            <p
+              className={cn(
+                "text-xs",
+                isGlassLayout
+                  ? isLightMode
+                    ? "text-stone-500"
+                    : "text-zinc-500"
+                  : "text-[#787774] dark:text-[#888888]",
+              )}
+            >
+              Click a preset to switch the interface layout. Your preference is
+              saved automatically.
             </p>
           </div>
 
-          <div className="space-y-4">
-            <h3 className="text-xs font-mono uppercase tracking-[0.22em] text-[#787774] dark:text-[#888888]">
+          <div
+            className={cn(
+              "space-y-4",
+              isGlassLayout &&
+                (isLightMode
+                  ? "rounded-[1.75rem] border border-stone-300/80 bg-white/58 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+                  : "rounded-[1.75rem] border border-white/10 bg-zinc-950/38 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"),
+            )}
+          >
+            <h3
+              className={cn(
+                "text-xs font-mono uppercase tracking-[0.22em]",
+                isGlassLayout
+                  ? isLightMode
+                    ? "text-stone-500"
+                    : "text-zinc-500"
+                  : "text-[#787774] dark:text-[#888888]",
+              )}
+            >
               Core engine
             </h3>
-            <div className="flex items-center justify-between rounded-lg border border-[#EAEAEA] p-4 transition-colors dark:border-[#2A2A2A]">
+            <div
+              className={cn(
+                "flex items-center justify-between p-4 transition-colors",
+                isGlassLayout
+                  ? isLightMode
+                    ? "rounded-[1.35rem] border border-stone-300/80 bg-[#fcfaf7]"
+                    : "rounded-[1.35rem] border border-white/10 bg-zinc-950/45"
+                  : "rounded-lg border border-[#EAEAEA] dark:border-[#2A2A2A]",
+              )}
+            >
               <div>
-                <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
+                <p
+                  className={cn(
+                    "text-sm font-medium",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-900"
+                        : "text-zinc-100"
+                      : "text-[#111111] dark:text-[#EDEDED]",
+                  )}
+                >
                   Use aria2c downloader
                 </p>
-                <p className="mt-1 text-xs text-[#787774] dark:text-[#888888]">
+                <p
+                  className={cn(
+                    "mt-1 text-xs",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-600"
+                        : "text-zinc-400"
+                      : "text-[#787774] dark:text-[#888888]",
+                  )}
+                >
                   Enable 16 parallel connections for faster downloads.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={onToggleAria2c}
-                className={cn(
-                  "relative h-6 w-12 rounded-full transition-colors",
-                  useAria2c ? "bg-[#111111] dark:bg-[#EDEDED]" : "bg-[#D6D3D1] dark:bg-[#2A2A2A]",
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute top-1 h-4 w-4 rounded-full bg-white transition-transform dark:bg-[#111111]",
-                    useAria2c ? "translate-x-7" : "translate-x-1",
-                  )}
-                />
-              </button>
+              <ToggleSwitch
+                checked={useAria2c}
+                onToggle={onToggleAria2c}
+                ariaLabel="Use aria2c downloader"
+                tone={isLightMode ? "light" : "dark"}
+                size="sm"
+              />
             </div>
 
-            <div className="rounded-lg border border-[#EAEAEA] bg-[#FBFBFA] p-4 transition-colors dark:border-[#2A2A2A] dark:bg-[#0F0F0F]">
+            <div
+              className={cn(
+                "p-4 transition-colors",
+                isGlassLayout
+                  ? isLightMode
+                    ? "rounded-[1.35rem] border border-stone-300/80 bg-[#fcfaf7]"
+                    : "rounded-[1.35rem] border border-white/10 bg-zinc-950/45"
+                  : "rounded-lg border border-[#EAEAEA] bg-[#FBFBFA] dark:border-[#2A2A2A] dark:bg-[#0F0F0F]",
+              )}
+            >
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
+                  <p
+                    className={cn(
+                      "text-sm font-medium",
+                      isGlassLayout
+                        ? isLightMode
+                          ? "text-stone-900"
+                          : "text-zinc-100"
+                        : "text-[#111111] dark:text-[#EDEDED]",
+                    )}
+                  >
                     yt-dlp version
                   </p>
-                  <p className="mt-1 font-mono text-xs text-[#787774] dark:text-[#888888]">
+                  <p
+                    className={cn(
+                      "mt-1 font-mono text-xs",
+                      isGlassLayout
+                        ? isLightMode
+                          ? "text-stone-500"
+                          : "text-zinc-500"
+                        : "text-[#787774] dark:text-[#888888]",
+                    )}
+                  >
                     Current: {ytdlpVersion || "Unknown"}
                   </p>
                 </div>
@@ -165,7 +399,14 @@ export function SettingsModal({
                   type="button"
                   onClick={onCheckUpdate}
                   disabled={isCheckingUpdate}
-                  className="text-xs text-[#111111] transition-colors hover:text-[#333333] disabled:opacity-50 dark:text-[#EDEDED] dark:hover:text-white"
+                  className={cn(
+                    "text-xs transition-colors disabled:opacity-50",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-700 hover:text-stone-900"
+                        : "text-zinc-300 hover:text-white"
+                      : "text-[#111111] hover:text-[#333333] dark:text-[#EDEDED] dark:hover:text-white",
+                  )}
                 >
                   {isCheckingUpdate ? (
                     <span className="flex items-center gap-1">
@@ -186,7 +427,14 @@ export function SettingsModal({
                   type="button"
                   onClick={onUpdateYtdlp}
                   disabled={isUpdating}
-                  className="inline-flex items-center gap-2 rounded-md bg-[#111111] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#333333] disabled:opacity-50 dark:bg-[#EDEDED] dark:text-[#111111] dark:hover:bg-white"
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "bg-stone-900 text-stone-50 hover:bg-stone-700"
+                        : "bg-zinc-100 text-zinc-950 hover:bg-white"
+                      : "bg-[#111111] text-white hover:bg-[#333333] dark:bg-[#EDEDED] dark:text-[#111111] dark:hover:bg-white",
+                  )}
                 >
                   {isUpdating ? (
                     <>
@@ -203,69 +451,158 @@ export function SettingsModal({
               )}
 
               {ytdlpLatestVersion && ytdlpLatestVersion === ytdlpVersion && (
-                <div className="flex items-center gap-1 text-xs text-[#346538] dark:text-[#76B87B]">
+                <div
+                  className={cn(
+                    "flex items-center gap-1 text-xs",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-emerald-700"
+                        : "text-emerald-300"
+                      : "text-[#346538] dark:text-[#76B87B]",
+                  )}
+                >
                   <CheckCircle2 className="h-3 w-3" />
                   Up to date
                 </div>
               )}
 
               {updateError && (
-                <div className="mt-3 rounded-md bg-[#FDEBEC] px-3 py-2 text-xs text-[#9F2F2D] dark:bg-[#331112] dark:text-[#E86B69]">
+                <div
+                  className={cn(
+                    "mt-3 rounded-md px-3 py-2 text-xs",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "bg-red-50 text-red-700"
+                        : "bg-red-500/10 text-red-300"
+                      : "bg-[#FDEBEC] text-[#9F2F2D] dark:bg-[#331112] dark:text-[#E86B69]",
+                  )}
+                >
                   {updateError}
                 </div>
               )}
 
-              <div className="mt-4 flex items-center justify-between border-t border-[#EAEAEA] pt-4 transition-colors dark:border-[#2A2A2A]">
-                <span className="text-xs text-[#787774] dark:text-[#888888]">
-                  Auto-update on startup
-                </span>
-                <button
-                  type="button"
-                  onClick={onToggleAutoUpdate}
+              <div
+                className={cn(
+                  "mt-4 flex items-center justify-between pt-4 transition-colors",
+                  isGlassLayout
+                    ? isLightMode
+                      ? "border-t border-stone-300/80"
+                      : "border-t border-white/10"
+                    : "border-t border-[#EAEAEA] dark:border-[#2A2A2A]",
+                )}
+              >
+                <span
                   className={cn(
-                    "relative h-5 w-10 rounded-full transition-colors",
-                    autoUpdateYtdlp
-                      ? "bg-[#111111] dark:bg-[#EDEDED]"
-                      : "bg-[#D6D3D1] dark:bg-[#2A2A2A]",
+                    "text-xs",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-600"
+                        : "text-zinc-400"
+                      : "text-[#787774] dark:text-[#888888]",
                   )}
                 >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform dark:bg-[#111111]",
-                      autoUpdateYtdlp ? "translate-x-5" : "translate-x-0.5",
-                    )}
-                  />
-                </button>
+                  Auto-update on startup
+                </span>
+                <ToggleSwitch
+                  checked={autoUpdateYtdlp}
+                  onToggle={onToggleAutoUpdate}
+                  ariaLabel="Auto-update on startup"
+                  tone={isLightMode ? "light" : "dark"}
+                  size="sm"
+                />
               </div>
             </div>
           </div>
 
-          <div className="space-y-4">
-            <h3 className="text-xs font-mono uppercase tracking-[0.22em] text-[#787774] dark:text-[#888888]">
+          <div
+            className={cn(
+              "space-y-4",
+              isGlassLayout &&
+                (isLightMode
+                  ? "rounded-[1.75rem] border border-stone-300/80 bg-white/58 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+                  : "rounded-[1.75rem] border border-white/10 bg-zinc-950/38 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"),
+            )}
+          >
+            <h3
+              className={cn(
+                "text-xs font-mono uppercase tracking-[0.22em]",
+                isGlassLayout
+                  ? isLightMode
+                    ? "text-stone-500"
+                    : "text-zinc-500"
+                  : "text-[#787774] dark:text-[#888888]",
+              )}
+            >
               Integration
             </h3>
-            <div className="rounded-lg border border-[#EAEAEA] p-4 transition-colors dark:border-[#2A2A2A]">
+            <div
+              className={cn(
+                "p-4 transition-colors",
+                isGlassLayout
+                  ? isLightMode
+                    ? "rounded-[1.35rem] border border-stone-300/80 bg-[#fcfaf7]"
+                    : "rounded-[1.35rem] border border-white/10 bg-zinc-950/45"
+                  : "rounded-lg border border-[#EAEAEA] dark:border-[#2A2A2A]",
+              )}
+            >
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
+                  <p
+                    className={cn(
+                      "text-sm font-medium",
+                      isGlassLayout
+                        ? isLightMode
+                          ? "text-stone-900"
+                          : "text-zinc-100"
+                        : "text-[#111111] dark:text-[#EDEDED]",
+                    )}
+                  >
                     Chrome extension bridge
                   </p>
-                  <p className="mt-1 text-xs text-[#787774] dark:text-[#888888]">
-                    Loopback API for the companion extension in <span className="font-mono">extension/chrome</span>.
+                  <p
+                    className={cn(
+                      "mt-1 text-xs",
+                      isGlassLayout
+                        ? isLightMode
+                          ? "text-stone-600"
+                          : "text-zinc-400"
+                        : "text-[#787774] dark:text-[#888888]",
+                    )}
+                  >
+                    Loopback API for the companion extension in{" "}
+                    <span className="font-mono">extension/chrome</span>.
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={onRefreshExtensionBridge}
-                  className="text-xs text-[#111111] transition-colors hover:text-[#333333] dark:text-[#EDEDED] dark:hover:text-white"
+                  className={cn(
+                    "text-xs transition-colors",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-700 hover:text-stone-900"
+                        : "text-zinc-300 hover:text-white"
+                      : "text-[#111111] hover:text-[#333333] dark:text-[#EDEDED] dark:hover:text-white",
+                  )}
                 >
                   Refresh
                 </button>
               </div>
 
-              <div className="rounded-md bg-[#111111] p-3 font-mono text-xs text-[#A1A1AA] transition-colors dark:bg-[#1F1F1F]">
+              <div
+                className={cn(
+                  "rounded-md p-3 font-mono text-xs transition-colors",
+                  isGlassLayout
+                    ? isLightMode
+                      ? "border border-stone-300/80 bg-white/80 text-stone-600"
+                      : "border border-white/10 bg-zinc-900/80 text-zinc-400"
+                    : "bg-[#111111] text-[#A1A1AA] dark:bg-[#1F1F1F]",
+                )}
+              >
                 <div className="flex items-center justify-between gap-4">
-                  <span>{extensionBridgeInfo?.endpoint || "http://127.0.0.1:46321"}</span>
+                  <span>
+                    {extensionBridgeInfo?.endpoint || "http://127.0.0.1:46321"}
+                  </span>
                   <span
                     className={cn(
                       extensionBridgeInfo?.ready
@@ -277,18 +614,36 @@ export function SettingsModal({
                   </span>
                 </div>
                 {extensionBridgeInfo?.error && (
-                  <div className="mt-2 text-[#E6B300]">{extensionBridgeInfo.error}</div>
+                  <div className="mt-2 text-[#E6B300]">
+                    {extensionBridgeInfo.error}
+                  </div>
                 )}
               </div>
             </div>
           </div>
         </div>
 
-        <div className="flex justify-end border-t border-[#EAEAEA] bg-[#FBFBFA] px-6 py-4 transition-colors dark:border-[#2A2A2A] dark:bg-[#0F0F0F]">
+        <div
+          className={cn(
+            "relative flex justify-end px-6 py-4 transition-colors",
+            isGlassLayout
+              ? isLightMode
+                ? "border-t border-stone-300/70 bg-white/46"
+                : "border-t border-white/10 bg-zinc-950/30"
+              : "border-t border-[#EAEAEA] bg-[#FBFBFA] dark:border-[#2A2A2A] dark:bg-[#0F0F0F]",
+          )}
+        >
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md bg-[#111111] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#333333] dark:bg-[#EDEDED] dark:text-[#111111] dark:hover:bg-white"
+            className={cn(
+              "px-4 py-2 text-sm font-medium transition-colors",
+              isGlassLayout
+                ? isLightMode
+                  ? "rounded-xl bg-stone-900 text-stone-50 hover:bg-stone-700"
+                  : "rounded-xl bg-zinc-100 text-zinc-950 hover:bg-white"
+                : "rounded-md bg-[#111111] text-white hover:bg-[#333333] dark:bg-[#EDEDED] dark:text-[#111111] dark:hover:bg-white",
+            )}
           >
             Save Changes
           </button>

@@ -41,6 +41,7 @@ import {
   type DownloadItem,
   type PlaylistInfo,
 } from "../../lib/types";
+import { ToggleSwitch } from "../ToggleSwitch";
 import { cn } from "../../lib/utils";
 
 interface PaginationState {
@@ -226,16 +227,16 @@ export function NotionDashboard({
           <Button
             variant="ghost"
             className="px-2 py-1"
-            onClick={onToggleDarkMode}
+            onClick={onOpenSettings}
           >
-            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+            <Settings size={18} />
           </Button>
           <Button
             variant="ghost"
             className="px-2 py-1"
-            onClick={onOpenSettings}
+            onClick={onToggleDarkMode}
           >
-            <Settings size={18} />
+            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
           </Button>
         </div>
       </header>
@@ -323,24 +324,34 @@ export function NotionDashboard({
                   ))}
                 </select>
 
-                <label
+                <div
                   className={cn(
-                    "flex cursor-pointer select-none items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
+                    "flex min-w-[220px] items-center justify-between gap-4 rounded-md border px-3 py-2.5 transition-colors",
                     subtitlesEnabled
                       ? "border-[#EAEAEA] bg-[#F1EFE9] text-[#111111] shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] dark:border-[#2A2A2A] dark:bg-[#1A1A1A] dark:text-[#EDEDED] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
                       : "border-[#EAEAEA] bg-white hover:bg-[#FBFBFA] dark:border-[#2A2A2A] dark:bg-[#141414] dark:hover:bg-[#0F0F0F]",
-                    isAudioOnly && "cursor-not-allowed opacity-50",
+                    isAudioOnly && "opacity-50",
                   )}
                 >
-                  <input
-                    type="checkbox"
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Embed Subtitles</p>
+                    <p className="text-[11px] text-[#787774] dark:text-[#888888]">
+                      {isAudioOnly
+                        ? "Unavailable for audio-only downloads"
+                        : subtitlesEnabled
+                          ? "Subtitles are on"
+                          : "Subtitles are off"}
+                    </p>
+                  </div>
+                  <ToggleSwitch
                     checked={subtitlesEnabled}
-                    onChange={onToggleSubtitles}
+                    onToggle={onToggleSubtitles}
                     disabled={isAudioOnly}
-                    className="rounded-sm border-[#EAEAEA] bg-white text-[#111111] focus:ring-[#111111] dark:border-[#2A2A2A] dark:bg-[#0F0F0F] dark:text-[#EDEDED] dark:focus:ring-[#EDEDED]"
+                    ariaLabel="Embed subtitles"
+                    tone={isDarkMode ? "dark" : "light"}
+                    size="sm"
                   />
-                  <span>Embed Subtitles</span>
-                </label>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -352,16 +363,26 @@ export function NotionDashboard({
                   <ListPlus size={16} />
                   <span>Batch</span>
                 </Button>
-                <Button
-                  variant="secondary"
-                  title="Schedule Download"
+                <div
                   className={cn(
-                    isScheduling && "border-[#111111] dark:border-[#EDEDED]",
+                    "flex items-center gap-3 rounded-md border px-3 py-2 transition-colors",
+                    isScheduling
+                      ? "border-[#111111] bg-[#F1EFE9] text-[#111111] shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] dark:border-[#EDEDED] dark:bg-[#1A1A1A] dark:text-[#EDEDED] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                      : "border-[#EAEAEA] bg-white text-[#111111] dark:border-[#2A2A2A] dark:bg-[#141414] dark:text-[#EDEDED]",
                   )}
-                  onClick={onToggleScheduling}
                 >
-                  <Clock size={16} />
-                </Button>
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Clock size={16} />
+                    <span>Schedule</span>
+                  </div>
+                  <ToggleSwitch
+                    checked={isScheduling}
+                    onToggle={onToggleScheduling}
+                    ariaLabel="Schedule download"
+                    tone={isDarkMode ? "dark" : "light"}
+                    size="sm"
+                  />
+                </div>
                 <Button
                   variant="primary"
                   className="pl-3 pr-5"

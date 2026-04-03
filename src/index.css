@@ -121,4 +121,155 @@ select {
 .glass-scroll {
   scrollbar-width: thin;
   scrollbar-color: rgba(161, 161, 170, 0.35) transparent;
-}
+}
+
+.themed-toggle {
+  --toggle-focus: rgba(16, 185, 129, 0.35);
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  font-size: 25px;
+  border-radius: 999px;
+  box-sizing: border-box;
+}
+
+.themed-toggle[data-size="sm"] {
+  font-size: 22px;
+}
+
+.themed-toggle[data-size="md"] {
+  font-size: 25px;
+}
+
+.themed-toggle[data-tone="light"] {
+  background: linear-gradient(90deg, #d2a16b, #c7b184);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 8px 18px -14px rgba(120, 101, 79, 0.55);
+}
+
+.themed-toggle[data-tone="dark"] {
+  background: linear-gradient(90deg, #4f46e5, #0f766e);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 22px -16px rgba(15, 23, 42, 0.85);
+}
+
+.themed-toggle input[type="checkbox"],
+.themed-toggle label,
+.themed-toggle label::before,
+.themed-toggle label::after {
+  appearance: none;
+  display: inline-block;
+  font-size: inherit;
+  border-radius: 1em;
+  border: 0;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: 0.35s ease-in-out;
+}
+
+.themed-toggle label {
+  width: 2.2em;
+  height: 1em;
+  overflow: hidden;
+}
+
+.themed-toggle[data-tone="light"] label {
+  background: #d9d2c9;
+}
+
+.themed-toggle[data-tone="dark"] label {
+  background: #2a2c33;
+}
+
+.themed-toggle input[type="checkbox"] {
+  position: absolute;
+  z-index: 1;
+  width: 0.8em;
+  height: 0.8em;
+  top: 0.1em;
+  left: 0.1em;
+  margin: 0;
+  background: linear-gradient(45deg, #dedede, #ffffff);
+  box-shadow: 0 6px 7px rgba(0, 0, 0, 0.3);
+  outline: none;
+}
+
+.themed-toggle input[type="checkbox"]:focus-visible {
+  box-shadow:
+    0 0 0 3px var(--toggle-focus),
+    0 6px 7px rgba(0, 0, 0, 0.3);
+}
+
+.themed-toggle input[type="checkbox"]:checked {
+  left: 1.3em;
+}
+
+.themed-toggle input[type="checkbox"]:checked + label {
+  background: transparent;
+}
+
+.themed-toggle label::before,
+.themed-toggle label::after {
+  content: "· ·";
+  position: absolute;
+  overflow: hidden;
+  left: 0.5em;
+  top: 0.5em;
+  height: 1em;
+  letter-spacing: -0.04em;
+  font-family: "Times New Roman", serif;
+  font-size: 0.6em;
+  z-index: 2;
+  border-radius: 0;
+  transform-origin: 0 0 -0.5em;
+  backface-visibility: hidden;
+}
+
+.themed-toggle[data-tone="light"] label::before,
+.themed-toggle[data-tone="light"] label::after {
+  color: #8e8274;
+}
+
+.themed-toggle[data-tone="dark"] label::before,
+.themed-toggle[data-tone="dark"] label::after {
+  color: #8a90a3;
+}
+
+.themed-toggle label::after {
+  content: "?";
+  top: 0.65em;
+  left: 0.6em;
+  height: 0.1em;
+  width: 0.35em;
+  font-size: 0.2em;
+  transform-origin: 0 0 -0.4em;
+}
+
+.themed-toggle input[type="checkbox"]:checked + label::before,
+.themed-toggle input[type="checkbox"]:checked + label::after {
+  left: 2.55em;
+  top: 0.4em;
+  line-height: 0.1em;
+  transform: rotateY(360deg);
+}
+
+.themed-toggle input[type="checkbox"]:checked + label::after {
+  top: 0.55em;
+  left: 2.6em;
+  height: 0.16em;
+  font-size: 0.6em;
+  line-height: 0;
+}
+
+.themed-toggle--disabled {
+  opacity: 0.55;
+}
+
+.themed-toggle--disabled input[type="checkbox"],
+.themed-toggle--disabled label,
+.themed-toggle--disabled label::before,
+.themed-toggle--disabled label::after {
+  cursor: not-allowed;
+}

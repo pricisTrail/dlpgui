@@ -331,8 +331,7 @@ export default function App() {
         if (item.id === id) {
           return { ...item, isLogsOpen: isOpen ?? !item.isLogsOpen };
         }
-        // Collapse all other items (accordion)
-        return item.isLogsOpen ? { ...item, isLogsOpen: false } : item;
+        return item;
       }),
     );
   };
@@ -919,6 +918,7 @@ export default function App() {
     selectedQualityId,
     subtitlesEnabled,
     isAudioOnly,
+    isDarkMode,
     isScheduling,
     scheduledTime,
     canSubmit,
@@ -937,6 +937,7 @@ export default function App() {
     onChangeView: (view: "active" | "history") => setCurrentView(view),
     onOpenFolder: openFolder,
     onOpenSettings: () => setIsSettingsOpen(true),
+    onToggleDarkMode: () => setIsDarkMode((value) => !value),
     onSelectFolder: handleSelectFolder,
     onStartDrag: startWindowDrag,
     onMinimize: () => {
@@ -979,7 +980,6 @@ export default function App() {
           }}
           fileInputRef={fileInputRef}
           onFileImport={handleFileImport}
-          onToggleDarkMode={() => setIsDarkMode((value) => !value)}
           onCancelDownload={handleCancelDownload}
           onToggleHistoryLogs={toggleHistoryLogs}
         />
@@ -1002,6 +1002,8 @@ export default function App() {
 
       <SettingsModal
         isOpen={isSettingsOpen}
+        layoutPreset={uiPreset}
+        isDarkMode={isDarkMode}
         useAria2c={useAria2c}
         autoUpdateYtdlp={autoUpdateYtdlp}
         ytdlpVersion={ytdlpVersion}
