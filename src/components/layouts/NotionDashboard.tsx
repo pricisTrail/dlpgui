@@ -15,6 +15,7 @@ import {
   Download,
   FileText,
   Folder,
+  FolderOpen,
   ListPlus,
   Loader2,
   Minus,
@@ -90,6 +91,7 @@ interface NotionDashboardProps {
   onToggleDarkMode: () => void;
   onOpenSettings: () => void;
   onOpenFolder: (path: string) => void;
+  onSelectFolder: () => void;
   onCancelDownload: (id: string) => void;
   onToggleHistoryLogs: (id: string, isOpen?: boolean) => void;
   onMinimize: () => void;
@@ -135,6 +137,7 @@ export function NotionDashboard({
   onToggleDarkMode,
   onOpenSettings,
   onOpenFolder,
+  onSelectFolder,
   onCancelDownload,
   onToggleHistoryLogs,
   onMinimize,
@@ -164,38 +167,43 @@ export function NotionDashboard({
         className="hidden"
       />
 
-      <div
-        className="flex h-10 items-center justify-between border-b border-[#EAEAEA] bg-white px-4 text-xs transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]"
-        data-tauri-drag-region
-        onMouseDown={onStartDrag}
-        onDoubleClick={onToggleMaximize}
-      >
-        <div className="flex items-center gap-4 font-mono text-[#787774] transition-colors dark:text-[#888888]">
-          <span className="font-semibold text-[#111111] dark:text-[#EDEDED]">
-            yt-dlp
-          </span>
-          <span>{versionLabel}</span>
+      <div className="flex h-10 items-center border-b border-[#EAEAEA] bg-white px-4 text-xs transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
+        <div
+          className="flex min-w-0 flex-1 items-center gap-4"
+          data-tauri-drag-region
+          onMouseDown={onStartDrag}
+          onDoubleClick={onToggleMaximize}
+        >
+          <div className="flex items-center gap-4 font-mono text-[#787774] transition-colors dark:text-[#888888]">
+            <span className="font-semibold text-[#111111] dark:text-[#EDEDED]">
+              yt-dlp
+            </span>
+            <span>{versionLabel}</span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 text-[#787774] transition-colors dark:text-[#888888]">
+        <div className="flex shrink-0 items-center gap-1 text-[#787774] transition-colors dark:text-[#888888]">
           <button
             type="button"
             onClick={onMinimize}
-            className="transition-colors hover:text-[#111111] dark:hover:text-[#EDEDED]"
+            className="rounded-md p-1.5 transition-colors hover:bg-[#F7F6F3] hover:text-[#111111] dark:hover:bg-[#1F1F1F] dark:hover:text-[#EDEDED]"
+            title="Minimize"
           >
             <Minus size={14} />
           </button>
           <button
             type="button"
             onClick={onToggleMaximize}
-            className="transition-colors hover:text-[#111111] dark:hover:text-[#EDEDED]"
+            className="rounded-md p-1.5 transition-colors hover:bg-[#F7F6F3] hover:text-[#111111] dark:hover:bg-[#1F1F1F] dark:hover:text-[#EDEDED]"
+            title="Maximize"
           >
             <Square size={12} />
           </button>
           <button
             type="button"
             onClick={onCloseWindow}
-            className="transition-colors hover:text-[#9F2F2D] dark:hover:text-[#E86B69]"
+            className="rounded-md p-1.5 transition-colors hover:bg-[#FDEBEC] hover:text-[#9F2F2D] dark:hover:bg-[#331112] dark:hover:text-[#E86B69]"
+            title="Close"
           >
             <X size={16} />
           </button>
@@ -204,16 +212,26 @@ export function NotionDashboard({
 
       <header className="flex items-center justify-between border-b border-[#EAEAEA] bg-white px-6 pb-2 pt-2.5 text-sm transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
         <div className="flex items-center gap-6">
-          <button
-            type="button"
-            onClick={() => onOpenFolder(savePath)}
-            className="flex items-center gap-2 text-[#787774] transition-colors hover:text-[#111111] dark:text-[#888888] dark:hover:text-[#EDEDED]"
-          >
-            <Folder size={16} />
-            <span className="max-w-[220px] truncate font-mono" title={savePath}>
-              {savePath}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenFolder(savePath)}
+              className="flex items-center gap-2 text-[#787774] transition-colors hover:text-[#111111] dark:text-[#888888] dark:hover:text-[#EDEDED]"
+            >
+              <Folder size={16} />
+              <span className="max-w-[220px] truncate font-mono" title={savePath}>
+                {savePath}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onSelectFolder}
+              className="rounded-md p-1 text-[#787774] transition-colors hover:bg-[#F7F6F3] hover:text-[#111111] dark:text-[#888888] dark:hover:bg-[#1F1F1F] dark:hover:text-[#EDEDED]"
+              title="Choose download folder"
+            >
+              <FolderOpen size={16} />
+            </button>
+          </div>
           <div className="h-4 w-px bg-[#EAEAEA] transition-colors dark:bg-[#2A2A2A]" />
           <div className="flex items-center gap-2">
             <Monitor size={16} className="text-[#346538] dark:text-[#76B87B]" />
@@ -227,18 +245,21 @@ export function NotionDashboard({
           <Button
             variant="ghost"
             className="px-2 py-1"
-            onClick={onOpenSettings}
+            onClick={onToggleDarkMode}
+            title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
           >
-            <Settings size={18} />
+            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
           </Button>
           <Button
             variant="ghost"
             className="px-2 py-1"
-            onClick={onToggleDarkMode}
+            onClick={onOpenSettings}
+            title="Settings"
           >
-            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+            <Settings size={18} />
           </Button>
         </div>
+
       </header>
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 p-6">
