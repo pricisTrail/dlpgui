@@ -293,7 +293,7 @@ export function GlassDashboard({
               </div>
             </div>
 
-            <div className="flex items-start gap-3">
+            <div className="relative top-32 flex items-start gap-3">
               <button
                 type="button"
                 onClick={onToggleSubtitles}
@@ -336,8 +336,15 @@ export function GlassDashboard({
               </button>
             </div>
 
-            {isScheduling && (
-              <div className="space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-4">
+            <div className="relative h-[112px]">
+              <div
+                className={cn(
+                  "relative -top-20 space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-4 transition-opacity duration-200",
+                  isScheduling
+                    ? "opacity-100"
+                    : "pointer-events-none opacity-0",
+                )}
+              >
                 <div className="flex gap-2">
                   {(["1h", "3h", "Tonight", "Tomorrow"] as const).map(
                     (preset) => (
@@ -361,10 +368,10 @@ export function GlassDashboard({
                   className="w-full rounded-xl border border-zinc-700 bg-transparent px-4 py-2 font-mono text-sm text-zinc-200 outline-none transition-colors focus:border-zinc-400"
                 />
               </div>
-            )}
+            </div>
 
             <div className="mt-auto space-y-3 pt-2">
-              <div className="grid grid-cols-[1fr_auto] gap-2">
+              <div className="relative -top-4 grid grid-cols-[1fr_auto] gap-2">
                 <button
                   type="button"
                   onClick={onPrimaryAction}
@@ -438,12 +445,12 @@ export function GlassDashboard({
                   <button
                     type="button"
                     onClick={onClearHistory}
-                    className="rounded-full border border-zinc-800 bg-zinc-900/90 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.18em] text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+                    className="rounded-full border border-zinc-800 bg-zinc-900/90 px-3 py-1 text-[10px] font-sans font-extrabold uppercase tracking-[0.14em] text-zinc-300 transition-colors hover:border-zinc-700 hover:text-zinc-100"
                   >
                     Clear
                   </button>
                 )}
-                <span className="rounded-full border border-zinc-800 bg-zinc-900/90 px-3 py-1 text-[10px] font-mono uppercase tracking-[0.18em] text-zinc-500">
+                <span className="rounded-full border border-zinc-800 bg-zinc-900/90 px-3 py-1 text-[10px] font-sans font-extrabold uppercase tracking-[0.14em] text-zinc-300">
                   {currentView === "active"
                     ? `${queueCount} queued`
                     : `${history.length} logs`}
@@ -458,7 +465,7 @@ export function GlassDashboard({
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
-                    <span className="min-w-[3rem] text-center text-[10px] font-mono uppercase tracking-[0.18em] text-zinc-500">
+                    <span className="min-w-[3rem] text-center text-[10px] font-sans font-extrabold uppercase tracking-[0.14em] text-zinc-300">
                       {historyPage}/{historyPageCount}
                     </span>
                     <button
