@@ -1,4 +1,5 @@
-import { useEffect, useState, type MouseEventHandler } from "react";
+import type { ChangeEvent, MouseEventHandler, RefObject } from "react";
+import { useEffect, useState } from "react";
 
 import {
   AlertCircle,
@@ -59,7 +60,9 @@ interface GlassDashboardProps {
   activeDownloads: DownloadItem[];
   scheduledDownloads: DownloadItem[];
   history: DownloadItem[];
+  fileInputRef: RefObject<HTMLInputElement | null>;
   onUrlChange: (value: string) => void;
+  onFileImport: (event: ChangeEvent<HTMLInputElement>) => void;
   onSelectQualityId: (qualityId: string) => void;
   onToggleSubtitles: () => void;
   onScheduledTimeChange: (value: string) => void;
@@ -82,12 +85,7 @@ interface GlassDashboardProps {
   onCloseWindow: () => void;
 }
 
-const QUEUE_PAGE_CAPACITY = 4;
 const HISTORY_PAGE_CAPACITY = 8;
-
-type QueueViewItem =
-  | { kind: "scheduled"; item: DownloadItem }
-  | { kind: "active"; item: DownloadItem };
 
 function paginateItems<T>(
   items: T[],
@@ -129,7 +127,6 @@ export function GlassDashboard({
   savePath,
   url,
   urlType,
-  urlLines,
   selectedQualityId,
   subtitlesEnabled,
   isAudioOnly,
@@ -144,7 +141,9 @@ export function GlassDashboard({
   activeDownloads,
   scheduledDownloads,
   history,
+  fileInputRef,
   onUrlChange,
+  onFileImport,
   onSelectQualityId,
   onToggleSubtitles,
   onScheduledTimeChange,
@@ -167,44 +166,26 @@ export function GlassDashboard({
   onCloseWindow,
 }: GlassDashboardProps) {
   const queueCount = activeDownloads.length + scheduledDownloads.length;
-  const queueItems: QueueViewItem[] = [
-    ...scheduledDownloads.map((item) => ({ kind: "scheduled" as const, item })),
-    ...activeDownloads.map((item) => ({ kind: "active" as const, item })),
-  ];
-  const queuePages = paginateItems(
-    queueItems,
-    (entry) => (entry.kind === "scheduled" ? 1 : entry.item.isLogsOpen ? 4 : 2),
-    QUEUE_PAGE_CAPACITY,
-  );
-  const historyPages = paginateItems(
-    history,
-    () => 1,
-    HISTORY_PAGE_CAPACITY,
-  );
-  const queuePageCount = Math.max(1, queuePages.length);
+  const historyPages = paginateItems(history, () => 1, HISTORY_PAGE_CAPACITY);
   const historyPageCount = Math.max(1, historyPages.length);
-  const [queuePage, setQueuePage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
-
-  useEffect(() => {
-    setQueuePage((page) => Math.min(page, queuePageCount));
-  }, [queuePageCount]);
 
   useEffect(() => {
     setHistoryPage((page) => Math.min(page, historyPageCount));
   }, [historyPageCount]);
 
-  const visibleQueueItems = queuePages[queuePage - 1] ?? [];
-  const visibleScheduledDownloads = visibleQueueItems
-    .filter((entry) => entry.kind === "scheduled")
-    .map((entry) => entry.item);
-  const visibleActiveDownloads = visibleQueueItems
-    .filter((entry) => entry.kind === "active")
-    .map((entry) => entry.item);
   const visibleHistory = historyPages[historyPage - 1] ?? [];
 
   return (
     <div className="relative h-[100dvh] overflow-hidden bg-[#09090b] text-zinc-50">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".txt"
+        onChange={onFileImport}
+        className="hidden"
+      />
+
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(38,38,92,0.35),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(6,95,70,0.28),transparent_36%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-[0.035] [background-image:linear-gradient(rgba(255,255,255,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.12)_1px,transparent_1px)] [background-size:72px_72px]" />
 
@@ -234,10 +215,10 @@ export function GlassDashboard({
                 onChange={(event) => onUrlChange(event.target.value)}
                 rows={3}
                 placeholder="Paste URL or text list here..."
-                className="w-full resize-none rounded-[1.4rem] border border-zinc-800 bg-zinc-950/55 p-4 pr-24 font-mono text-sm text-zinc-300 outline-none transition-colors placeholder:text-zinc-600 focus:border-zinc-500"
+                className="scrollbar-hidden w-full resize-none rounded-[1.4rem] border border-zinc-800 bg-zinc-950/55 p-4 pr-24 font-mono text-sm text-zinc-300 outline-none transition-colors placeholder:text-zinc-600 focus:border-zinc-500"
               />
               {urlType && (
-                <div className="absolute bottom-3 right-3 rounded-lg border border-zinc-700/50 bg-zinc-800/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-200 backdrop-blur-md">
+                <div className="absolute bottom-3 right-2 rounded-lg border border-zinc-700/50 bg-zinc-800/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-200 backdrop-blur-md">
                   <span className="flex items-center gap-1.5">
                     {urlType === "playlist" ? (
                       <List className="h-3 w-3 text-emerald-400" />
@@ -251,21 +232,6 @@ export function GlassDashboard({
                 </div>
               )}
             </div>
-
-            {urlType === "batch" && (
-              <div className="rounded-[1.4rem] border border-zinc-800 bg-zinc-950/45 p-4">
-                <div className="mb-2 text-[10px] font-mono uppercase tracking-[0.22em] text-zinc-500">
-                  Detected {urlLines.length} targets
-                </div>
-                <div className="space-y-1 font-mono text-xs text-zinc-400/80">
-                  {urlLines.slice(0, 3).map((line, index) => (
-                    <div key={`${line}-${index}`} className="truncate">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {urlType === "playlist" && playlistInfo && !isFetchingPlaylist && (
               <div className="rounded-[1.5rem] border border-emerald-500/15 bg-emerald-500/10 p-4">
@@ -327,33 +293,48 @@ export function GlassDashboard({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onToggleSubtitles}
-              className={cn(
-                "group flex items-center gap-3 rounded-2xl border p-4 text-left transition-colors",
-                isAudioOnly
-                  ? "cursor-not-allowed border-zinc-900 bg-zinc-950/35 text-zinc-600"
-                  : "cursor-pointer border-zinc-800/80 bg-zinc-950/40 hover:border-zinc-700",
-              )}
-              disabled={isAudioOnly}
-            >
-              <span
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                onClick={onToggleSubtitles}
                 className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-[0.45rem] transition-all duration-300",
-                  subtitlesEnabled
-                    ? "bg-zinc-100 text-zinc-950"
-                    : isAudioOnly
-                      ? "bg-zinc-900 text-transparent"
-                      : "bg-zinc-800 text-transparent group-hover:bg-zinc-700",
+                  "group inline-flex self-start items-center gap-3 rounded-2xl border py-4 pl-4 pr-[28px] text-left transition-colors",
+                  isAudioOnly
+                    ? "cursor-not-allowed border-zinc-900 bg-zinc-950/35 text-zinc-600"
+                    : "cursor-pointer border-zinc-800/80 bg-zinc-950/40 hover:border-zinc-700",
                 )}
+                disabled={isAudioOnly}
               >
-                <Check className="h-3.5 w-3.5" strokeWidth={3} />
-              </span>
-              <span className="text-sm font-medium text-zinc-300">
-                Embed subtitles (+subs)
-              </span>
-            </button>
+                <span
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-[0.45rem] transition-all duration-300",
+                    subtitlesEnabled
+                      ? "bg-zinc-100 text-zinc-950"
+                      : isAudioOnly
+                        ? "bg-zinc-900 text-transparent"
+                        : "bg-zinc-800 text-transparent group-hover:bg-zinc-700",
+                  )}
+                >
+                  <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                </span>
+                <span className="-ml-1 whitespace-nowrap text-sm font-medium text-zinc-300">
+                  Embed subtitles
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="group -ml-[4px] inline-flex self-start items-center gap-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/40 py-4 pl-[14px] pr-[60px] text-left transition-colors hover:border-zinc-700"
+              >
+                <span className="flex h-5 w-5 items-center justify-center rounded-[0.45rem] bg-zinc-800 text-zinc-400 transition-all duration-300 group-hover:bg-zinc-700 group-hover:text-zinc-200">
+                  <FileText className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </span>
+                <span className="-ml-1 whitespace-nowrap text-sm font-medium text-zinc-300">
+                  Upload .txt
+                </span>
+              </button>
+            </div>
 
             {isScheduling && (
               <div className="space-y-3 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-4">
@@ -467,41 +448,31 @@ export function GlassDashboard({
                     ? `${queueCount} queued`
                     : `${history.length} logs`}
                 </span>
-                {(() => {
-                  const page = currentView === "active" ? queuePage : historyPage;
-                  const totalPages = currentView === "active" ? queuePageCount : historyPageCount;
-                  return totalPages > 1 ? (
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          currentView === "active"
-                            ? setQueuePage((p) => Math.max(1, p - 1))
-                            : setHistoryPage((p) => Math.max(1, p - 1))
-                        }
-                        disabled={page === 1}
-                        className="flex h-6 w-6 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/90 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <ChevronLeft className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="min-w-[3rem] text-center text-[10px] font-mono uppercase tracking-[0.18em] text-zinc-500">
-                        {page}/{totalPages}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          currentView === "active"
-                            ? setQueuePage((p) => Math.min(queuePageCount, p + 1))
-                            : setHistoryPage((p) => Math.min(historyPageCount, p + 1))
-                        }
-                        disabled={page === totalPages}
-                        className="flex h-6 w-6 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/90 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : null;
-                })()}
+                {currentView === "history" && historyPageCount > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                      disabled={historyPage === 1}
+                      className="flex h-6 w-6 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/90 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                    <span className="min-w-[3rem] text-center text-[10px] font-mono uppercase tracking-[0.18em] text-zinc-500">
+                      {historyPage}/{historyPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setHistoryPage((p) => Math.min(historyPageCount, p + 1))
+                      }
+                      disabled={historyPage === historyPageCount}
+                      className="flex h-6 w-6 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/90 text-zinc-400 transition-colors hover:border-zinc-700 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -509,7 +480,7 @@ export function GlassDashboard({
           <div className="relative -top-[4.5rem] h-[660px] overflow-hidden">
             {currentView === "active" ? (
               activeDownloads.length === 0 &&
-                scheduledDownloads.length === 0 ? (
+              scheduledDownloads.length === 0 ? (
                 <div className="h-full overflow-hidden overscroll-none pr-1 pt-8">
                   <EmptyStateCard
                     className="h-[calc(100%-2rem)] min-h-[calc(560px-2rem)]"
@@ -521,14 +492,14 @@ export function GlassDashboard({
               ) : (
                 <div className="relative h-full pr-1 pt-8">
                   <div className="h-[calc(100%-2rem)] min-h-[calc(560px-2rem)] overflow-hidden rounded-[2rem] border border-zinc-800/50 bg-zinc-900/20">
-                    <div className="h-full overflow-y-auto p-5">
-                      {visibleScheduledDownloads.length > 0 && (
+                    <div className="glass-scroll h-full overflow-y-auto p-5">
+                      {scheduledDownloads.length > 0 && (
                         <div className="flex flex-col gap-3">
                           <h3 className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-[0.22em] text-zinc-500">
                             <Calendar className="h-3 w-3" />
                             Scheduled dispatch
                           </h3>
-                          {visibleScheduledDownloads.map((item) => (
+                          {scheduledDownloads.map((item) => (
                             <ScheduledDownloadCard
                               key={item.id}
                               item={item}
@@ -538,14 +509,14 @@ export function GlassDashboard({
                         </div>
                       )}
 
-                      {visibleActiveDownloads.length > 0 && (
+                      {activeDownloads.length > 0 && (
                         <div
                           className={cn(
                             "flex flex-col gap-4",
-                            visibleScheduledDownloads.length > 0 && "mt-6",
+                            scheduledDownloads.length > 0 && "mt-6",
                           )}
                         >
-                          {visibleActiveDownloads.map((item) => (
+                          {activeDownloads.map((item) => (
                             <ActiveDownloadCard
                               key={item.id}
                               item={item}
@@ -571,7 +542,7 @@ export function GlassDashboard({
             ) : (
               <div className="relative h-full pr-1 pt-8">
                 <div className="h-[calc(100%-2rem)] min-h-[calc(560px-2rem)] overflow-hidden rounded-[2rem] border border-zinc-800/50 bg-zinc-900/20">
-                  <div className="flex h-full flex-col overflow-y-auto">
+                  <div className="glass-scroll flex h-full flex-col overflow-y-auto">
                     {visibleHistory.map((item, index, items) => (
                       <HistoryDownloadCard
                         key={item.id}
@@ -587,7 +558,6 @@ export function GlassDashboard({
               </div>
             )}
           </div>
-
         </section>
       </main>
     </div>
@@ -734,8 +704,6 @@ function EmptyStateCard({
     </div>
   );
 }
-
-
 
 function StatusBadge({ phase }: { phase: string }) {
   const configs: Record<
@@ -1035,22 +1003,24 @@ function HistoryDownloadCard({
       </button>
 
       {item.isLogsOpen && (
-        <div className="px-6 py-4 font-mono text-xs leading-relaxed text-zinc-500">
-          {item.logs?.length ? (
-            item.logs.map((log, index) => (
-              <div key={`${item.id}-log-${index}`}>{log}</div>
-            ))
-          ) : (
-            <>
-              <div>[yt-dlp] Extracting URL: {item.url}</div>
-              <div>[download] Destination: {item.title}</div>
-              <div>
-                {isSuccess
-                  ? "Finished processing successfully."
-                  : "Process terminated."}
-              </div>
-            </>
-          )}
+        <div className="px-5 pb-4">
+          <div className="glass-scroll max-h-[240px] overflow-y-auto rounded-[1.2rem] border border-zinc-800/80 bg-zinc-950/70 p-4 font-mono text-[11px] leading-relaxed text-zinc-500">
+            {item.logs?.length ? (
+              item.logs.map((log, index) => (
+                <div key={`${item.id}-log-${index}`}>{log}</div>
+              ))
+            ) : (
+              <>
+                <div>[yt-dlp] Extracting URL: {item.url}</div>
+                <div>[download] Destination: {item.title}</div>
+                <div>
+                  {isSuccess
+                    ? "Finished processing successfully."
+                    : "Process terminated."}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

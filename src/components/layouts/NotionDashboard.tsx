@@ -450,7 +450,10 @@ export function NotionDashboard({
           </div>
 
           <div className="flex flex-col gap-3">
-            <div className="scrollbar-hidden min-h-[340px] max-h-[340px] overflow-y-auto rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]">
+            <div className={cn(
+              "scrollbar-hidden overflow-y-auto rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]",
+              currentView === "active" ? "min-h-[340px]" : "min-h-[340px] max-h-[340px]",
+            )}>
               {items.length > 0 ? (
                 currentView === "active" ? (
                   <div className="flex flex-col gap-3 p-3">
@@ -493,60 +496,62 @@ export function NotionDashboard({
               )}
             </div>
 
-            <div className="flex items-center justify-between pt-0.5">
-              <span className="text-xs text-[#787774] dark:text-[#888888]">
-                Showing {showingStart}-{showingEnd} of {pagination.totalItems}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  className="px-2 py-1"
-                  onClick={() =>
-                    pagination.onPageChange(
-                      Math.max(1, pagination.currentPage - 1),
-                    )
-                  }
-                  disabled={pagination.currentPage === 1}
-                >
-                  <ChevronLeft size={16} />
-                </Button>
-                <div className="flex gap-1">
-                  {getVisiblePages(
-                    pagination.currentPage,
-                    pagination.totalPages,
-                  ).map((page) => (
-                    <button
-                      key={page}
-                      type="button"
-                      onClick={() => pagination.onPageChange(page)}
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md text-sm transition-colors",
-                        pagination.currentPage === page
-                          ? "bg-[#111111] text-white dark:bg-[#EDEDED] dark:text-[#111111]"
-                          : "text-[#787774] hover:bg-[#F7F6F3] dark:text-[#888888] dark:hover:bg-[#1F1F1F]",
-                      )}
-                    >
-                      {page}
-                    </button>
-                  ))}
+            {pagination.totalPages > 1 && (
+              <div className="flex items-center justify-between pt-0.5">
+                <span className="text-xs text-[#787774] dark:text-[#888888]">
+                  Showing {showingStart}-{showingEnd} of {pagination.totalItems}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    className="px-2 py-1"
+                    onClick={() =>
+                      pagination.onPageChange(
+                        Math.max(1, pagination.currentPage - 1),
+                      )
+                    }
+                    disabled={pagination.currentPage === 1}
+                  >
+                    <ChevronLeft size={16} />
+                  </Button>
+                  <div className="flex gap-1">
+                    {getVisiblePages(
+                      pagination.currentPage,
+                      pagination.totalPages,
+                    ).map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => pagination.onPageChange(page)}
+                        className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-md text-sm transition-colors",
+                          pagination.currentPage === page
+                            ? "bg-[#111111] text-white dark:bg-[#EDEDED] dark:text-[#111111]"
+                            : "text-[#787774] hover:bg-[#F7F6F3] dark:text-[#888888] dark:hover:bg-[#1F1F1F]",
+                        )}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className="px-2 py-1"
+                    onClick={() =>
+                      pagination.onPageChange(
+                        Math.min(
+                          pagination.totalPages,
+                          pagination.currentPage + 1,
+                        ),
+                      )
+                    }
+                    disabled={pagination.currentPage === pagination.totalPages}
+                  >
+                    <ChevronRight size={16} />
+                  </Button>
                 </div>
-                <Button
-                  variant="secondary"
-                  className="px-2 py-1"
-                  onClick={() =>
-                    pagination.onPageChange(
-                      Math.min(
-                        pagination.totalPages,
-                        pagination.currentPage + 1,
-                      ),
-                    )
-                  }
-                  disabled={pagination.currentPage === pagination.totalPages}
-                >
-                  <ChevronRight size={16} />
-                </Button>
               </div>
-            </div>
+            )}
           </div>
         </section>
       </main>

@@ -129,12 +129,9 @@ export default function App() {
   );
   const scheduledDownloads = downloads.filter((download) => download.status === "scheduled");
   const queuedDownloads = [...activeDownloads, ...scheduledDownloads];
-  const activeTotalPages = Math.max(1, Math.ceil(queuedDownloads.length / ITEMS_PER_PAGE));
+  const activeTotalPages = 1;
   const historyTotalPages = Math.max(1, Math.ceil(history.length / ITEMS_PER_PAGE));
-  const activeItems = queuedDownloads.slice(
-    (activePage - 1) * ITEMS_PER_PAGE,
-    activePage * ITEMS_PER_PAGE,
-  );
+  const activeItems = queuedDownloads;
   const historyItems = history.slice(
     (historyPage - 1) * ITEMS_PER_PAGE,
     historyPage * ITEMS_PER_PAGE,
@@ -330,9 +327,13 @@ export default function App() {
 
   const toggleHistoryLogs = (id: string, isOpen?: boolean) => {
     setHistory((previous) =>
-      previous.map((item) =>
-        item.id === id ? { ...item, isLogsOpen: isOpen ?? !item.isLogsOpen } : item,
-      ),
+      previous.map((item) => {
+        if (item.id === id) {
+          return { ...item, isLogsOpen: isOpen ?? !item.isLogsOpen };
+        }
+        // Collapse all other items (accordion)
+        return item.isLogsOpen ? { ...item, isLogsOpen: false } : item;
+      }),
     );
   };
 
@@ -988,6 +989,8 @@ export default function App() {
           activeDownloads={activeDownloads}
           scheduledDownloads={scheduledDownloads}
           history={history}
+          fileInputRef={fileInputRef}
+          onFileImport={handleFileImport}
           onCancelDownload={handleCancelDownload}
           onCancelScheduledDownload={cancelScheduledDownload}
           onToggleDownloadLogs={toggleDownloadLogs}
