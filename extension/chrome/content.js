@@ -50,6 +50,61 @@ function createElement(tag, styles = {}, textContent = "") {
   return element;
 }
 
+function isDarkYouTubeTheme() {
+  const root = document.documentElement;
+  const app = document.querySelector("ytd-app");
+  const colorScheme = window.getComputedStyle(root).colorScheme || "";
+
+  return (
+    root.hasAttribute("dark") ||
+    Boolean(app?.hasAttribute("dark")) ||
+    colorScheme.includes("dark") ||
+    (window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false)
+  );
+}
+
+function getOverlayTheme() {
+  if (isDarkYouTubeTheme()) {
+    return {
+      buttonBackground: "rgba(255, 255, 255, 0.1)",
+      buttonHoverBackground: "rgba(255, 255, 255, 0.16)",
+      buttonBorder: "1px solid rgba(255, 255, 255, 0.14)",
+      buttonColor: "#f8fafc",
+      cardBackground: "#18181b",
+      cardBorder: "1px solid rgba(255, 255, 255, 0.08)",
+      cardShadow: "0 20px 48px rgba(0, 0, 0, 0.52)",
+      titleColor: "#f3f4f6",
+      sectionTitleColor: "#a1a1aa",
+      dividerColor: "#27272a",
+      rowTextColor: "#f3f4f6",
+      rowSubtextColor: "#a1a1aa",
+      rowHoverBackground: "rgba(255, 255, 255, 0.06)",
+      rowDefaultAccent: "#f3f4f6",
+      rowSubtitlesAccent: "#60a5fa",
+      radioBorderColor: "#d4d4d8",
+    };
+  }
+
+  return {
+    buttonBackground: "rgba(15, 15, 15, 0.08)",
+    buttonHoverBackground: "rgba(15, 15, 15, 0.14)",
+    buttonBorder: "1px solid rgba(15, 23, 42, 0.08)",
+    buttonColor: "#0f0f0f",
+    cardBackground: "#ffffff",
+    cardBorder: "1px solid rgba(148, 163, 184, 0.25)",
+    cardShadow: "0 20px 48px rgba(15, 23, 42, 0.24)",
+    titleColor: "#111827",
+    sectionTitleColor: "#94a3b8",
+    dividerColor: "#e5e7eb",
+    rowTextColor: "#111827",
+    rowSubtextColor: "#64748b",
+    rowHoverBackground: "rgba(239, 246, 255, 0.98)",
+    rowDefaultAccent: "#111827",
+    rowSubtitlesAccent: "#2563eb",
+    radioBorderColor: "#0f172a",
+  };
+}
+
 function createToastHost() {
   let host = document.getElementById("dlpgui-toast-host");
   if (host) {
@@ -221,6 +276,7 @@ function positionCard(card, anchorButton) {
 }
 
 function buildChoiceRow(meta, button, choice, source) {
+  const theme = getOverlayTheme();
   const row = createElement("button", {
     width: "100%",
     display: "flex",
@@ -231,7 +287,7 @@ function buildChoiceRow(meta, button, choice, source) {
     border: "0",
     borderLeft: "3px solid transparent",
     background: "transparent",
-    color: "#111827",
+    color: theme.rowTextColor,
     textAlign: "left",
     cursor: "pointer",
     transform: "translateX(0)",
@@ -247,7 +303,11 @@ function buildChoiceRow(meta, button, choice, source) {
   titleWrap.appendChild(createElement("span", { fontSize: "13px", fontWeight: "500" }, choice.label));
   if (choice.subtitles) {
     titleWrap.appendChild(
-      createElement("span", { fontSize: "11px", color: "#64748b", marginTop: "2px" }, "With embedded subtitles"),
+      createElement(
+        "span",
+        { fontSize: "11px", color: theme.rowSubtextColor, marginTop: "2px" },
+        "With embedded subtitles",
+      ),
     );
   }
 
@@ -261,7 +321,7 @@ function buildChoiceRow(meta, button, choice, source) {
     width: "14px",
     height: "14px",
     borderRadius: "999px",
-    border: "1.5px solid #0f172a",
+    border: `1.5px solid ${theme.radioBorderColor}`,
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -272,7 +332,7 @@ function buildChoiceRow(meta, button, choice, source) {
       width: "6px",
       height: "6px",
       borderRadius: "999px",
-      background: choice.subtitles ? "#2563eb" : "#111827",
+      background: choice.subtitles ? theme.rowSubtitlesAccent : theme.rowDefaultAccent,
     }),
   );
   left.appendChild(radio);
@@ -283,7 +343,7 @@ function buildChoiceRow(meta, button, choice, source) {
     {
       fontSize: "11px",
       fontWeight: "600",
-      color: "#64748b",
+      color: theme.rowSubtextColor,
       flex: "0 0 auto",
       transition: "color 120ms ease",
     },
@@ -294,16 +354,20 @@ function buildChoiceRow(meta, button, choice, source) {
   row.appendChild(note);
 
   row.addEventListener("mouseenter", () => {
-    row.style.background = "rgba(239, 246, 255, 0.98)";
-    row.style.borderLeftColor = choice.subtitles ? "#2563eb" : "#111827";
+    row.style.background = theme.rowHoverBackground;
+    row.style.borderLeftColor = choice.subtitles
+      ? theme.rowSubtitlesAccent
+      : theme.rowDefaultAccent;
     row.style.transform = "translateX(2px)";
-    note.style.color = choice.subtitles ? "#2563eb" : "#111827";
+    note.style.color = choice.subtitles
+      ? theme.rowSubtitlesAccent
+      : theme.rowDefaultAccent;
   });
   row.addEventListener("mouseleave", () => {
     row.style.background = "transparent";
     row.style.borderLeftColor = "transparent";
     row.style.transform = "translateX(0)";
-    note.style.color = "#64748b";
+    note.style.color = theme.rowSubtextColor;
   });
   row.addEventListener("click", (event) => {
     event.preventDefault();
@@ -316,6 +380,7 @@ function buildChoiceRow(meta, button, choice, source) {
 }
 
 function buildSection(meta, button, titleText, withSubtitles, source) {
+  const theme = getOverlayTheme();
   const section = document.createElement("div");
   section.appendChild(
     createElement(
@@ -326,7 +391,7 @@ function buildSection(meta, button, titleText, withSubtitles, source) {
         fontWeight: "700",
         letterSpacing: "0.08em",
         textTransform: "uppercase",
-        color: "#94a3b8",
+        color: theme.sectionTitleColor,
       },
       titleText,
     ),
@@ -345,16 +410,17 @@ function buildSection(meta, button, titleText, withSubtitles, source) {
 }
 
 function openQualityPicker(meta, anchorButton, source) {
+  const theme = getOverlayTheme();
   closeActivePicker();
 
   const card = createElement("div", {
     position: "fixed",
     zIndex: "999998",
     width: "272px",
-    background: "#ffffff",
-    border: "1px solid rgba(148, 163, 184, 0.25)",
+    background: theme.cardBackground,
+    border: theme.cardBorder,
     borderRadius: "14px",
-    boxShadow: "0 20px 48px rgba(15, 23, 42, 0.24)",
+    boxShadow: theme.cardShadow,
     overflow: "hidden",
     fontFamily: "Roboto, Arial, sans-serif",
   });
@@ -367,7 +433,7 @@ function openQualityPicker(meta, anchorButton, source) {
         padding: "14px 16px 10px",
         fontSize: "15px",
         fontWeight: "500",
-        color: "#111827",
+        color: theme.titleColor,
       },
       "Download Quality",
     ),
@@ -376,7 +442,7 @@ function openQualityPicker(meta, anchorButton, source) {
 
   const divider = createElement("div", {
     height: "1px",
-    background: "#e5e7eb",
+    background: theme.dividerColor,
     margin: "4px 14px",
   });
   card.appendChild(divider);
@@ -422,6 +488,7 @@ function openQualityPicker(meta, anchorButton, source) {
 }
 
 function createWatchReplacementButton(watchRoot, nativeTarget = null) {
+  const theme = getOverlayTheme();
   const defaultLabel =
     normalizeLabel(nativeTarget?.textContent || "") ||
     normalizeLabel(nativeTarget?.getAttribute?.("aria-label") || "") ||
@@ -434,10 +501,10 @@ function createWatchReplacementButton(watchRoot, nativeTarget = null) {
     flex: "0 0 auto",
     height: "36px",
     padding: "0 16px",
-    border: "0",
+    border: theme.buttonBorder,
     borderRadius: "18px",
-    background: "rgba(15, 15, 15, 0.08)",
-    color: "#0f0f0f",
+    background: theme.buttonBackground,
+    color: theme.buttonColor,
     font: "500 14px Roboto, Arial, sans-serif",
     whiteSpace: "nowrap",
     cursor: "pointer",
@@ -449,10 +516,10 @@ function createWatchReplacementButton(watchRoot, nativeTarget = null) {
   button.title = "Choose quality and send this video to dlp-gui";
 
   button.addEventListener("mouseenter", () => {
-    button.style.background = "rgba(15, 15, 15, 0.14)";
+    button.style.background = getOverlayTheme().buttonHoverBackground;
   });
   button.addEventListener("mouseleave", () => {
-    button.style.background = "rgba(15, 15, 15, 0.08)";
+    button.style.background = getOverlayTheme().buttonBackground;
   });
   button.addEventListener("click", (event) => {
     event.preventDefault();
@@ -475,7 +542,16 @@ function createWatchReplacementButton(watchRoot, nativeTarget = null) {
 
 function injectWatchButton() {
   const watchRoot = document.querySelector("ytd-watch-metadata");
-  if (!watchRoot || watchRoot.querySelector(WATCH_BUTTON_SELECTOR)) {
+  if (!watchRoot) {
+    return;
+  }
+
+  const existingButton = watchRoot.querySelector(WATCH_BUTTON_SELECTOR);
+  if (existingButton instanceof HTMLButtonElement) {
+    const theme = getOverlayTheme();
+    existingButton.style.background = theme.buttonBackground;
+    existingButton.style.border = theme.buttonBorder;
+    existingButton.style.color = theme.buttonColor;
     return;
   }
 

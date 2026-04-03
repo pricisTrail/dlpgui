@@ -15,7 +15,7 @@ export interface InterfacePreset {
   id: string;
   name: string;
   description: string;
-  status: "active" | "saved";
+  isActive: boolean;
 }
 
 interface SettingsModalProps {
@@ -84,7 +84,7 @@ export function SettingsModal({
     >
       <div
         className={cn(
-          "relative flex max-h-[84vh] w-full flex-col overflow-hidden transition-colors",
+          "relative flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden transition-colors",
           isGlassLayout
             ? cn(
                 "max-w-3xl rounded-[2rem] border backdrop-blur-3xl",
@@ -166,7 +166,7 @@ export function SettingsModal({
           </button>
         </div>
 
-        <div className="settings-scroll relative flex max-h-[64vh] flex-col gap-6 overflow-y-auto p-6">
+        <div className="settings-scroll relative flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
           <div
             className={cn(
               "space-y-4",
@@ -214,65 +214,68 @@ export function SettingsModal({
                   type="button"
                   onClick={() => onSwitchPreset(preset.id)}
                   className={cn(
-                    "w-full text-left transition-all duration-200",
-                    preset.status === "active"
-                      ? isGlassLayout
-                        ? isLightMode
-                          ? "rounded-[1.4rem] border border-stone-400/90 bg-white/88 p-4 shadow-[0_18px_35px_-28px_rgba(68,64,60,0.55)]"
-                          : "rounded-[1.4rem] border border-white/15 bg-zinc-950/70 p-4 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.75)]"
-                        : "rounded-lg border border-[#111111] bg-[#F7F6F3] p-4 shadow-[0_0_0_1px_#111111] dark:border-[#EDEDED] dark:bg-[#1F1F1F] dark:shadow-[0_0_0_1px_#EDEDED]"
-                      : isGlassLayout
-                        ? isLightMode
-                          ? "rounded-[1.4rem] border border-stone-300/80 bg-white/52 p-4 hover:border-stone-400 hover:bg-white/72"
-                          : "rounded-[1.4rem] border border-white/8 bg-zinc-950/28 p-4 hover:border-white/15 hover:bg-zinc-950/45"
-                        : "rounded-lg border border-[#EAEAEA] p-4 hover:border-[#CCCCCC] hover:bg-[#FBFBFA] dark:border-[#2A2A2A] dark:hover:border-[#444444] dark:hover:bg-[#1A1A1A]",
+                    "group block w-full appearance-none bg-transparent p-0 text-left",
+                    preset.isActive && "cursor-default",
                   )}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p
-                        className={cn(
-                          "text-sm font-medium",
-                          isGlassLayout
-                            ? isLightMode
-                              ? "text-stone-900"
-                              : "text-zinc-100"
-                            : "text-[#111111] dark:text-[#EDEDED]",
-                        )}
-                      >
-                        {preset.name}
-                      </p>
-                      <p
-                        className={cn(
-                          "mt-1 text-xs",
-                          isGlassLayout
-                            ? isLightMode
-                              ? "text-stone-600"
-                              : "text-zinc-400"
-                            : "text-[#787774] dark:text-[#888888]",
-                        )}
-                      >
-                        {preset.description}
-                      </p>
-                    </div>
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-colors",
-                        preset.status === "active"
-                          ? isGlassLayout
-                            ? isLightMode
-                              ? "bg-stone-900 text-stone-50"
-                              : "bg-zinc-100 text-zinc-950"
-                            : "bg-[#111111] text-white dark:bg-[#EDEDED] dark:text-[#111111]"
-                          : isGlassLayout
-                            ? isLightMode
-                              ? "bg-stone-100 text-stone-500"
-                              : "bg-zinc-800 text-zinc-400"
-                            : "bg-[#F7F6F3] text-[#787774] dark:bg-[#1F1F1F] dark:text-[#888888]",
+                  <div
+                    className={cn(
+                      "transition-all duration-200",
+                      preset.isActive
+                        ? isGlassLayout
+                          ? isLightMode
+                            ? "rounded-[1.4rem] border border-stone-500/90 bg-transparent p-4 ring-1 ring-stone-400/70"
+                            : "rounded-[1.4rem] border border-white/40 bg-zinc-950/18 p-4 shadow-[0_18px_40px_-30px_rgba(0,0,0,0.75)] ring-1 ring-white/20"
+                          : "rounded-lg border border-[#111111] bg-[#F7F6F3] p-4 shadow-[0_0_0_1px_#111111] dark:border-[#EDEDED] dark:bg-[#1F1F1F] dark:shadow-[0_0_0_1px_#EDEDED]"
+                        : isGlassLayout
+                          ? isLightMode
+                            ? "rounded-[1.4rem] border border-stone-300/80 bg-white/52 p-4"
+                            : "rounded-[1.4rem] border border-zinc-800/90 bg-zinc-950/24 p-4"
+                          : "rounded-lg border border-[#EAEAEA] p-4 group-hover:border-[#CCCCCC] group-hover:bg-[#FBFBFA] dark:border-[#2A2A2A] dark:group-hover:border-[#444444] dark:group-hover:bg-[#1A1A1A]",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p
+                          className={cn(
+                            "text-sm font-medium",
+                            isGlassLayout
+                              ? isLightMode
+                                ? "text-stone-900"
+                                : "text-zinc-100"
+                              : "text-[#111111] dark:text-[#EDEDED]",
+                          )}
+                        >
+                          {preset.name}
+                        </p>
+                        <p
+                          className={cn(
+                            "mt-1 text-xs",
+                            isGlassLayout
+                              ? isLightMode
+                                ? "text-stone-600"
+                                : "text-zinc-400"
+                              : "text-[#787774] dark:text-[#888888]",
+                          )}
+                        >
+                          {preset.description}
+                        </p>
+                      </div>
+                      {preset.isActive && (
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] transition-colors",
+                            isGlassLayout
+                              ? isLightMode
+                                ? "bg-stone-900 text-stone-50"
+                                : "bg-zinc-100 text-zinc-950"
+                              : "bg-[#111111] text-white dark:bg-[#EDEDED] dark:text-[#111111]",
+                          )}
+                        >
+                          active
+                        </span>
                       )}
-                    >
-                      {preset.status}
-                    </span>
+                    </div>
                   </div>
                 </button>
               ))}

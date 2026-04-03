@@ -472,8 +472,7 @@ export function NotionDashboard({
 
           <div className="flex flex-col gap-3">
             <div className={cn(
-              "scrollbar-hidden overflow-y-auto rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]",
-              currentView === "active" ? "min-h-[340px]" : "min-h-[340px] max-h-[340px]",
+              "scrollbar-hidden h-[340px] overflow-y-auto rounded-lg border border-dashed border-[#EAEAEA] bg-white transition-colors dark:border-[#2A2A2A] dark:bg-[#141414]",
             )}>
               {items.length > 0 ? (
                 currentView === "active" ? (
@@ -500,7 +499,7 @@ export function NotionDashboard({
                   </div>
                 )
               ) : (
-                <div className="flex min-h-[340px] items-center justify-center">
+                <div className="flex h-full min-h-full items-center justify-center">
                   <div className="text-center">
                     <p className="text-sm font-medium text-[#111111] dark:text-[#EDEDED]">
                       {currentView === "active"
