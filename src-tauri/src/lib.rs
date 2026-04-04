@@ -6,16 +6,20 @@ mod tray;
 mod updates;
 
 use tauri::WindowEvent;
+use tauri_plugin_single_instance::init as single_instance;
 
 use bridge::{get_extension_bridge_info, start_extension_bridge, take_extension_download_requests};
 use downloads::{cancel_download, fetch_formats, fetch_playlist_info, open_folder, start_download};
 use state::MAIN_WINDOW_LABEL;
-use tray::create_tray;
+use tray::{create_tray, restore_main_window};
 use updates::{check_ytdlp_update, update_ytdlp};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(single_instance(|app, _args, _cwd| {
+            restore_main_window(app);
+        }))
         .setup(|app| {
             start_extension_bridge(app.handle().clone());
             create_tray(&app.handle())?;

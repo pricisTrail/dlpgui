@@ -6,7 +6,7 @@ use tauri::{
 
 use crate::state::{MAIN_WINDOW_LABEL, TRAY_OPEN_ID, TRAY_QUIT_ID};
 
-fn restore_main_window(app: &AppHandle) {
+pub fn restore_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.unminimize();
         let _ = window.show();
