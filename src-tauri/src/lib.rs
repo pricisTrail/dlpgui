@@ -14,6 +14,11 @@ use state::MAIN_WINDOW_LABEL;
 use tray::{create_tray, restore_main_window};
 use updates::{check_ytdlp_update, update_ytdlp};
 
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -48,7 +53,8 @@ pub fn run() {
             update_ytdlp,
             open_folder,
             get_extension_bridge_info,
-            take_extension_download_requests
+            take_extension_download_requests,
+            exit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

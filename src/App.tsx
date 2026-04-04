@@ -41,7 +41,7 @@ import {
 type LayoutPreset = "glass" | "notion";
 
 export default function App() {
-  const { minimizeWindow, toggleMaximizeWindow, closeWindow, startWindowDrag } =
+  const { minimizeWindow, toggleMaximizeWindow, closeWindow, quitApp, startWindowDrag } =
     useWindowControls();
   const {
     ytdlpVersion,
@@ -358,6 +358,22 @@ export default function App() {
     const timer = window.setTimeout(() => setExtensionActivity(""), 5000);
     return () => window.clearTimeout(timer);
   }, [extensionActivity]);
+
+  useEffect(() => {
+    const handleWindowCloseShortcut = (event: KeyboardEvent) => {
+      if (event.altKey || event.shiftKey) {
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w") {
+        event.preventDefault();
+        void quitApp();
+      }
+    };
+
+    window.addEventListener("keydown", handleWindowCloseShortcut);
+    return () => window.removeEventListener("keydown", handleWindowCloseShortcut);
+  }, [quitApp]);
 
   useEffect(() => {
     const savedPath = localStorage.getItem("downloadPath");
