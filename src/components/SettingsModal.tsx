@@ -560,7 +560,7 @@ export function SettingsModal({
                         : "text-[#111111] dark:text-[#EDEDED]",
                     )}
                   >
-                    Chrome extension bridge
+                    Browser extension bridge
                   </p>
                   <p
                     className={cn(

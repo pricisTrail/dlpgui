@@ -192,7 +192,7 @@ pub fn start_extension_bridge(app: AppHandle) {
             Ok(listener) => {
                 EXTENSION_BRIDGE_READY.store(true, Ordering::Relaxed);
                 set_extension_bridge_error(None);
-                println!("[bridge] Chrome extension bridge listening on {}", bind_addr);
+                println!("[bridge] Browser extension bridge listening on {}", bind_addr);
 
                 loop {
                     match listener.accept().await {

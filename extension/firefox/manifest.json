@@ -1,0 +1,53 @@
+{
+  "manifest_version": 3,
+  "name": "dlp-gui Companion",
+  "version": "0.3.7",
+  "description": "Send YouTube videos to the local dlp-gui app in one click.",
+  "permissions": [
+    "alarms",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:46321/*",
+    "http://localhost:46321/*",
+    "https://www.youtube.com/*",
+    "https://m.youtube.com/*",
+    "https://music.youtube.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://m.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Send current tab to dlp-gui"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:46321 http://localhost:46321"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dlp-gui-companion@dlp-gui.local",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "browsingActivity",
+          "websiteContent",
+          "websiteActivity"
+        ]
+      }
+    }
+  }
+}
