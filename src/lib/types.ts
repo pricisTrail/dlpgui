@@ -11,8 +11,10 @@ export interface DownloadItem {
   isLogsOpen?: boolean;
   downloadPath?: string;
   completedAt?: string;
+  downloadDir?: string;
   format?: string;
   subtitles?: boolean;
+  useAria2c?: boolean;
   phase?: string;
   scheduledFor?: string;
 }
@@ -107,6 +109,9 @@ export const MIN_PROGRESS_DELTA = 0.25;
 export const ITEMS_PER_PAGE = 5;
 export const DEFAULT_BATCH_FORMAT_ID = "1080";
 export const DEFAULT_FORMAT_STRING = "bv*[height<=1080]+ba/b[height<=1080]/best";
+export const MIN_CONCURRENT_DOWNLOADS = 1;
+export const DEFAULT_CONCURRENT_DOWNLOADS = 3;
+export const MAX_CONCURRENT_DOWNLOADS = 10;
 
 export const BATCH_QUALITY_OPTIONS: BatchQualityOption[] = [
   { id: "2160", label: "2160p (4K)", format: "bv*[height<=2160]+ba/b[height<=2160]/best" },

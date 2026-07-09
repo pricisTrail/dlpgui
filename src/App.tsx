@@ -23,9 +23,12 @@ import {
 import {
   BATCH_QUALITY_OPTIONS,
   DEFAULT_BATCH_FORMAT_ID,
+  DEFAULT_CONCURRENT_DOWNLOADS,
   DEFAULT_FORMAT_STRING,
   ITEMS_PER_PAGE,
+  MAX_CONCURRENT_DOWNLOADS,
   MAX_LOG_LINES_PER_DOWNLOAD,
+  MIN_CONCURRENT_DOWNLOADS,
   MIN_PROGRESS_DELTA,
   PROGRESS_UPDATE_INTERVAL_MS,
   type DownloadItem,
@@ -39,6 +42,14 @@ import {
 } from "./lib/types";
 
 type LayoutPreset = "glass" | "notion";
+
+function normalizeConcurrentDownloads(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_CONCURRENT_DOWNLOADS;
+  return Math.min(
+    MAX_CONCURRENT_DOWNLOADS,
+    Math.max(MIN_CONCURRENT_DOWNLOADS, Math.trunc(value)),
+  );
+}
 
 export default function App() {
   const { minimizeWindow, toggleMaximizeWindow, closeWindow, quitApp, startWindowDrag } =
@@ -64,6 +75,8 @@ export default function App() {
     useAria2c: true,
   });
   const handledExtensionRequestsRef = useRef<Set<string>>(new Set());
+  const startingDownloadIdsRef = useRef<Set<string>>(new Set());
+  const cancelAfterStartIdsRef = useRef<Set<string>>(new Set());
 
   const [url, setUrl] = useState("");
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
@@ -77,6 +90,17 @@ export default function App() {
   const [useAria2c, setUseAria2c] = useState<boolean>(() => {
     const saved = localStorage.getItem("useAria2c");
     return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState<number>(() => {
+    const saved = localStorage.getItem("maxConcurrentDownloads");
+    if (saved === null) return DEFAULT_CONCURRENT_DOWNLOADS;
+
+    const parsed = Number(saved);
+    return Number.isInteger(parsed) &&
+      parsed >= MIN_CONCURRENT_DOWNLOADS &&
+      parsed <= MAX_CONCURRENT_DOWNLOADS
+      ? parsed
+      : DEFAULT_CONCURRENT_DOWNLOADS;
   });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
@@ -236,7 +260,7 @@ export default function App() {
     setWithSubtitles((value) => !value);
   };
 
-  const startSingleDownload = async ({
+  const startSingleDownload = ({
     downloadUrl,
     downloadTitle,
     formatString,
@@ -263,28 +287,13 @@ export default function App() {
       size: "Unknown",
       logs: [],
       isLogsOpen: false,
+      downloadDir: downloadDirPath,
       format: formatString,
       subtitles,
+      useAria2c: shouldUseAria2c,
     };
 
     setDownloads((previous) => [newDownload, ...previous]);
-
-    try {
-      await invoke("start_download", {
-        id,
-        url: downloadUrl,
-        downloadDir: downloadDirPath,
-        formatString,
-        subtitles,
-        useAria2c: shouldUseAria2c,
-      });
-    } catch (error) {
-      console.error("Failed to start download:", error);
-      setDownloads((previous) =>
-        previous.map((item) => (item.id === id ? { ...item, status: "error" } : item)),
-      );
-      throw error;
-    }
   };
 
   const processExtensionDownloadRequest = async (request: ExtensionDownloadRequest) => {
@@ -492,6 +501,8 @@ export default function App() {
 
     const unlistenStatus = listen<StatusPayload>("download-status", (event) => {
       delete progressUpdateTimesRef.current[event.payload.id];
+      startingDownloadIdsRef.current.delete(event.payload.id);
+      cancelAfterStartIdsRef.current.delete(event.payload.id);
       setDownloads((previous) =>
         previous.map((item) =>
           item.id === event.payload.id
@@ -527,6 +538,96 @@ export default function App() {
   }, [useAria2c]);
 
   useEffect(() => {
+    localStorage.setItem("maxConcurrentDownloads", JSON.stringify(maxConcurrentDownloads));
+  }, [maxConcurrentDownloads]);
+
+  useEffect(() => {
+    const runningCount = downloads.filter((item) => item.status === "downloading").length;
+    const availableSlots =
+      maxConcurrentDownloads - runningCount - startingDownloadIdsRef.current.size;
+
+    if (availableSlots <= 0) return;
+
+    const queuedItems = downloads
+      .filter(
+        (item) =>
+          item.status === "pending" && !startingDownloadIdsRef.current.has(item.id),
+      )
+      .slice(0, availableSlots);
+
+    queuedItems.forEach((item) => {
+      startingDownloadIdsRef.current.add(item.id);
+
+      void invoke("start_download", {
+        id: item.id,
+        url: item.url,
+        downloadDir: item.downloadDir || savePath,
+        formatString: item.format || DEFAULT_FORMAT_STRING,
+        subtitles: item.subtitles ?? false,
+        useAria2c: item.useAria2c ?? useAria2c,
+      })
+        .then(async () => {
+          if (cancelAfterStartIdsRef.current.delete(item.id)) {
+            try {
+              await invoke("cancel_download", { id: item.id });
+              setDownloads((previous) =>
+                previous.map((download) =>
+                  download.id === item.id
+                    ? { ...download, status: "cancelled" as const }
+                    : download,
+                ),
+              );
+            } catch (error) {
+              console.error("Failed to cancel download after it started:", error);
+              setDownloads((previous) =>
+                previous.map((download) =>
+                  download.id === item.id
+                    ? { ...download, status: "downloading" as const }
+                    : download,
+                ),
+              );
+            } finally {
+              startingDownloadIdsRef.current.delete(item.id);
+            }
+            return;
+          }
+
+          startingDownloadIdsRef.current.delete(item.id);
+          setDownloads((previous) =>
+            previous.map((download) =>
+              download.id === item.id && download.status === "pending"
+                ? { ...download, status: "downloading" as const }
+                : download,
+            ),
+          );
+        })
+        .catch((error) => {
+          startingDownloadIdsRef.current.delete(item.id);
+          const wasCancelled = cancelAfterStartIdsRef.current.delete(item.id);
+          if (wasCancelled) {
+            setDownloads((previous) =>
+              previous.map((download) =>
+                download.id === item.id
+                  ? { ...download, status: "cancelled" as const }
+                  : download,
+              ),
+            );
+            return;
+          }
+
+          console.error("Failed to start download:", error);
+          setDownloads((previous) =>
+            previous.map((download) =>
+              download.id === item.id
+                ? { ...download, status: "error" as const }
+                : download,
+            ),
+          );
+        });
+    });
+  }, [downloads, maxConcurrentDownloads, savePath, useAria2c]);
+
+  useEffect(() => {
     if (!trimmedUrl || urlType !== "playlist" || trimmedUrl === lastFetchedUrl || isFetchingPlaylist) {
       return;
     }
@@ -557,7 +658,7 @@ export default function App() {
     const updatedCompleted = completed.map((download) => ({
       ...download,
       completedAt: download.completedAt || new Date().toISOString(),
-      downloadPath: savePath,
+      downloadPath: download.downloadDir || savePath,
     }));
 
     setHistory((previous) => {
@@ -667,34 +768,16 @@ export default function App() {
       size: "Unknown",
       logs: [],
       isLogsOpen: false,
+      downloadDir: savePath,
       format: formatToUse,
       subtitles: subtitlesToUse,
+      useAria2c,
     }));
 
     setDownloads((previous) => [...pendingBatchItems, ...previous]);
     clearComposer();
     setCurrentView("active");
     setActivePage(1);
-
-    for (const item of pendingBatchItems) {
-      try {
-        await invoke("start_download", {
-          id: item.id,
-          url: item.url,
-          downloadDir: savePath,
-          formatString: formatToUse,
-          subtitles: subtitlesToUse,
-          useAria2c,
-        });
-      } catch (error) {
-        console.error("Failed to start download:", error);
-        setDownloads((previous) =>
-          previous.map((download) =>
-            download.id === item.id ? { ...download, status: "error" } : download,
-          ),
-        );
-      }
-    }
 
     setIsProcessing(false);
   };
@@ -733,8 +816,10 @@ export default function App() {
         size: "Unknown",
         logs: [],
         isLogsOpen: false,
+        downloadDir: savePath,
         format: formatToUse,
         subtitles: subtitlesToUse,
+        useAria2c,
         scheduledFor: scheduledTime,
       })),
       ...previous,
@@ -748,7 +833,6 @@ export default function App() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       const now = new Date();
-      const dueDownloads: DownloadItem[] = [];
 
       setDownloads((previous) => {
         let hasChanges = false;
@@ -762,30 +846,15 @@ export default function App() {
           }
 
           hasChanges = true;
-          const pendingItem = { ...item, status: "pending" as const };
-          dueDownloads.push(pendingItem);
-          return pendingItem;
+          return { ...item, status: "pending" as const };
         });
 
         return hasChanges ? next : previous;
       });
-
-      dueDownloads.forEach((item) => {
-        invoke("start_download", {
-          id: item.id,
-          url: item.url,
-          downloadDir: savePath,
-          formatString: item.format || DEFAULT_FORMAT_STRING,
-          subtitles: item.subtitles ?? withSubtitles,
-          useAria2c,
-        }).catch((error) => {
-          console.error("Failed to start scheduled download:", error);
-        });
-      });
     }, 10000);
 
     return () => window.clearInterval(interval);
-  }, [savePath, useAria2c, withSubtitles]);
+  }, []);
 
   const fetchFormats = async (videoUrl: string) => {
     if (!videoUrl || videoUrl === lastFetchedUrl || urlType !== "playlist") return;
@@ -808,6 +877,22 @@ export default function App() {
   };
 
   const cancelDownload = async (downloadId: string) => {
+    const download = downloads.find((item) => item.id === downloadId);
+
+    if (download?.status === "pending") {
+      if (startingDownloadIdsRef.current.has(downloadId)) {
+        cancelAfterStartIdsRef.current.add(downloadId);
+        return;
+      }
+
+      setDownloads((previous) =>
+        previous.map((item) =>
+          item.id === downloadId ? { ...item, status: "cancelled" as const } : item,
+        ),
+      );
+      return;
+    }
+
     try {
       await invoke("cancel_download", { id: downloadId });
     } catch (error) {
@@ -837,32 +922,14 @@ export default function App() {
         size: "Unknown",
         logs: [],
         isLogsOpen: false,
+        downloadDir: savePath,
         format: formatToUse,
         subtitles: subtitlesToUse,
+        useAria2c,
       }));
 
       setDownloads((previous) => [...newDownloads, ...previous]);
       clearComposer();
-
-      for (const download of newDownloads) {
-        try {
-          await invoke("start_download", {
-            id: download.id,
-            url: download.url,
-            downloadDir: savePath,
-            formatString: formatToUse,
-            subtitles: subtitlesToUse,
-            useAria2c,
-          });
-        } catch (error) {
-          console.error("Failed to start download:", error);
-          setDownloads((previous) =>
-            previous.map((item) =>
-              item.id === download.id ? { ...item, status: "error" } : item,
-            ),
-          );
-        }
-      }
 
       setIsProcessing(false);
       return;
@@ -1021,6 +1088,7 @@ export default function App() {
         layoutPreset={uiPreset}
         isDarkMode={isDarkMode}
         useAria2c={useAria2c}
+        maxConcurrentDownloads={maxConcurrentDownloads}
         autoUpdateYtdlp={autoUpdateYtdlp}
         ytdlpVersion={ytdlpVersion}
         ytdlpLatestVersion={ytdlpLatestVersion}
@@ -1031,6 +1099,9 @@ export default function App() {
         interfacePresets={interfacePresets}
         onClose={() => setIsSettingsOpen(false)}
         onToggleAria2c={() => setUseAria2c((value) => !value)}
+        onMaxConcurrentDownloadsChange={(value) =>
+          setMaxConcurrentDownloads(normalizeConcurrentDownloads(value))
+        }
         onCheckUpdate={checkYtdlpUpdate}
         onUpdateYtdlp={updateYtdlp}
         onToggleAutoUpdate={() => setAutoUpdateYtdlp((value) => !value)}

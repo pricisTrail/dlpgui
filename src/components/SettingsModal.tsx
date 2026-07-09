@@ -8,7 +8,11 @@ import {
 } from "lucide-react";
 
 import { ToggleSwitch } from "./ToggleSwitch";
-import type { ExtensionBridgeInfo } from "../lib/types";
+import {
+  MAX_CONCURRENT_DOWNLOADS,
+  MIN_CONCURRENT_DOWNLOADS,
+  type ExtensionBridgeInfo,
+} from "../lib/types";
 import { cn } from "../lib/utils";
 
 export interface InterfacePreset {
@@ -23,6 +27,7 @@ interface SettingsModalProps {
   layoutPreset: "glass" | "notion";
   isDarkMode: boolean;
   useAria2c: boolean;
+  maxConcurrentDownloads: number;
   autoUpdateYtdlp: boolean;
   ytdlpVersion: string;
   ytdlpLatestVersion: string;
@@ -33,6 +38,7 @@ interface SettingsModalProps {
   interfacePresets: InterfacePreset[];
   onClose: () => void;
   onToggleAria2c: () => void;
+  onMaxConcurrentDownloadsChange: (value: number) => void;
   onCheckUpdate: () => void;
   onUpdateYtdlp: () => void;
   onToggleAutoUpdate: () => void;
@@ -45,6 +51,7 @@ export function SettingsModal({
   layoutPreset,
   isDarkMode,
   useAria2c,
+  maxConcurrentDownloads,
   autoUpdateYtdlp,
   ytdlpVersion,
   ytdlpLatestVersion,
@@ -55,6 +62,7 @@ export function SettingsModal({
   interfacePresets,
   onClose,
   onToggleAria2c,
+  onMaxConcurrentDownloadsChange,
   onCheckUpdate,
   onUpdateYtdlp,
   onToggleAutoUpdate,
@@ -316,6 +324,65 @@ export function SettingsModal({
             >
               Core engine
             </h3>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-4 p-4 transition-colors",
+                isGlassLayout
+                  ? isLightMode
+                    ? "rounded-[1.35rem] border border-stone-300/80 bg-[#fcfaf7]"
+                    : "rounded-[1.35rem] border border-white/10 bg-zinc-950/45"
+                  : "rounded-lg border border-[#EAEAEA] dark:border-[#2A2A2A]",
+              )}
+            >
+              <div className="min-w-0">
+                <p
+                  className={cn(
+                    "text-sm font-medium",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-900"
+                        : "text-zinc-100"
+                      : "text-[#111111] dark:text-[#EDEDED]",
+                  )}
+                >
+                  Maximum simultaneous downloads
+                </p>
+                <p
+                  className={cn(
+                    "mt-1 text-xs",
+                    isGlassLayout
+                      ? isLightMode
+                        ? "text-stone-600"
+                        : "text-zinc-400"
+                      : "text-[#787774] dark:text-[#888888]",
+                  )}
+                >
+                  Run up to this many downloads at once. Remaining items stay queued.
+                </p>
+              </div>
+              <select
+                aria-label="Maximum simultaneous downloads"
+                value={maxConcurrentDownloads}
+                onChange={(event) => onMaxConcurrentDownloadsChange(Number(event.target.value))}
+                className={cn(
+                  "h-9 w-20 shrink-0 rounded-lg border px-3 text-sm font-medium outline-none transition-colors",
+                  isGlassLayout
+                    ? isLightMode
+                      ? "border-stone-300 bg-white text-stone-900 focus:border-stone-500"
+                      : "border-white/10 bg-zinc-900 text-zinc-100 focus:border-zinc-500"
+                    : "border-[#D9D9D7] bg-white text-[#111111] focus:border-[#9B9A97] dark:border-[#3A3A3A] dark:bg-[#171717] dark:text-[#EDEDED]",
+                )}
+              >
+                {Array.from(
+                  { length: MAX_CONCURRENT_DOWNLOADS - MIN_CONCURRENT_DOWNLOADS + 1 },
+                  (_, index) => MIN_CONCURRENT_DOWNLOADS + index,
+                ).map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div
               className={cn(
                 "flex items-center justify-between p-4 transition-colors",
