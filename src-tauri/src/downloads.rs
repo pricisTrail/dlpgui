@@ -1,16 +1,268 @@
-use std::path::PathBuf;
+use std::{
+    fs::OpenOptions,
+    io::Write,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use regex::Regex;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::{
-    ShellExt,
-    process::CommandEvent,
-};
+use tauri_plugin_shell::{process::CommandEvent, ShellExt};
 
 use crate::models::{
     DownloadProgress, FormatsResponse, PlaylistInfo, PlaylistVideo, QualityOption,
 };
 use crate::state::ACTIVE_DOWNLOADS;
+
+const TITLE_MARKER: &str = "__DLPGUI_TITLE__";
+const FAILED_DOWNLOADS_LOG: &str = "dlp-gui-failed-downloads.jsonl";
+
+struct YtDlpOutput {
+    success: bool,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn is_youtube_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("youtube.com/") || lower.contains("youtu.be/")
+}
+
+fn is_youtube_auth_challenge(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("http error 429")
+        || lower.contains("too many requests")
+        || lower.contains("sign in to confirm you")
+        || lower.contains("confirm you’re not a bot")
+        || lower.contains("confirm you're not a bot")
+        || lower.contains("login_required")
+}
+
+fn is_cookie_source_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    (lower.contains("could not copy") && lower.contains("cookie"))
+        || (lower.contains("failed to decrypt") && lower.contains("cookie"))
+        || lower.contains("failed to load cookies")
+        || (lower.contains("cookies database") && lower.contains("error"))
+}
+
+fn firefox_cookie_spec(root: &Path, label: &str) -> Option<(String, String)> {
+    let profiles_ini = root.join("profiles.ini");
+    let contents = std::fs::read_to_string(profiles_ini).ok()?;
+    let mut candidates = Vec::new();
+
+    for line in contents.lines() {
+        let line = line.trim();
+        let value = line
+            .strip_prefix("Default=")
+            .or_else(|| line.strip_prefix("Path="));
+        let Some(value) = value else {
+            continue;
+        };
+
+        let path = PathBuf::from(value.replace('/', "\\"));
+        let profile_path = if path.is_absolute() {
+            path
+        } else {
+            root.join(path)
+        };
+        if profile_path.join("cookies.sqlite").exists() && !candidates.contains(&profile_path) {
+            candidates.push(profile_path);
+        }
+    }
+
+    candidates.sort_by_key(|path| {
+        std::fs::metadata(path.join("cookies.sqlite"))
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(UNIX_EPOCH)
+    });
+
+    candidates.pop().map(|profile_path| {
+        (
+            format!("firefox:{}", profile_path.to_string_lossy()),
+            label.to_string(),
+        )
+    })
+}
+
+fn browser_cookie_sources() -> Vec<(String, String)> {
+    let mut sources = Vec::new();
+
+    if let Ok(app_data) = std::env::var("APPDATA") {
+        let app_data = PathBuf::from(app_data);
+        if let Some(source) = firefox_cookie_spec(&app_data.join("zen"), "Zen") {
+            sources.push(source);
+        }
+        if let Some(source) =
+            firefox_cookie_spec(&app_data.join("Mozilla").join("Firefox"), "Firefox")
+        {
+            sources.push(source);
+        }
+    }
+
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        let local_app_data = PathBuf::from(local_app_data);
+        let chromium_browsers = [
+            (
+                local_app_data
+                    .join("Google")
+                    .join("Chrome")
+                    .join("User Data"),
+                "chrome",
+                "Chrome",
+            ),
+            (
+                local_app_data
+                    .join("BraveSoftware")
+                    .join("Brave-Browser")
+                    .join("User Data"),
+                "brave",
+                "Brave",
+            ),
+            (
+                local_app_data
+                    .join("Microsoft")
+                    .join("Edge")
+                    .join("User Data"),
+                "edge",
+                "Edge",
+            ),
+        ];
+
+        for (user_data, browser, label) in chromium_browsers {
+            if user_data.join("Local State").exists() {
+                sources.push((browser.to_string(), label.to_string()));
+            }
+        }
+    }
+
+    sources
+}
+
+fn command_args(
+    base_args: &[String],
+    url: &str,
+    cookie_file: Option<&str>,
+    browser_cookie_spec: Option<&str>,
+) -> Vec<String> {
+    let mut args = base_args.to_vec();
+    if let Some(cookie_file) = cookie_file.filter(|path| !path.trim().is_empty()) {
+        args.push("--cookies".to_string());
+        args.push(cookie_file.to_string());
+    } else if let Some(cookie_spec) = browser_cookie_spec {
+        args.push("--cookies-from-browser".to_string());
+        args.push(cookie_spec.to_string());
+    }
+    args.push(url.to_string());
+    args
+}
+
+async fn run_ytdlp_output(
+    app: &AppHandle,
+    base_args: &[String],
+    url: &str,
+    cookie_file: Option<&str>,
+) -> Result<YtDlpOutput, String> {
+    let output = app
+        .shell()
+        .sidecar("yt-dlp")
+        .map_err(|e| e.to_string())?
+        .args(command_args(base_args, url, cookie_file, None))
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let first_stderr = String::from_utf8_lossy(&output.stderr);
+    if output.status.success()
+        || !is_youtube_url(url)
+        || (!is_youtube_auth_challenge(&first_stderr) && !is_cookie_source_error(&first_stderr))
+    {
+        return Ok(YtDlpOutput {
+            success: output.status.success(),
+            stdout: output.stdout,
+            stderr: output.stderr,
+        });
+    }
+
+    let cookie_sources = browser_cookie_sources();
+    if cookie_sources.is_empty() {
+        return Ok(YtDlpOutput {
+            success: false,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        });
+    }
+
+    let mut stderr = output.stderr;
+    let mut stdout = output.stdout;
+
+    for (cookie_spec, browser_label) in cookie_sources {
+        stderr.extend_from_slice(
+            format!(
+                "\n[dlp-gui] YouTube rejected the current session; trying {} cookies.\n",
+                browser_label
+            )
+            .as_bytes(),
+        );
+
+        let retry = app
+            .shell()
+            .sidecar("yt-dlp")
+            .map_err(|e| e.to_string())?
+            .args(command_args(base_args, url, None, Some(&cookie_spec)))
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+        let success = retry.status.success();
+        stdout = retry.stdout;
+        stderr.extend_from_slice(&retry.stderr);
+
+        if success {
+            return Ok(YtDlpOutput {
+                success: true,
+                stdout,
+                stderr,
+            });
+        }
+    }
+
+    Ok(YtDlpOutput {
+        success: false,
+        stdout,
+        stderr,
+    })
+}
+
+fn save_failed_download(
+    download_dir: &str,
+    id: &str,
+    title: &str,
+    url: &str,
+    error: &str,
+) -> Result<PathBuf, String> {
+    let log_path = PathBuf::from(download_dir).join(FAILED_DOWNLOADS_LOG);
+    let failed_at_unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let record = serde_json::json!({
+        "failed_at_unix": failed_at_unix,
+        "id": id,
+        "title": title,
+        "url": url,
+        "error": error,
+    });
+    let line = serde_json::to_string(&record).map_err(|e| e.to_string())?;
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Failed to open {:?}: {}", log_path, e))?;
+    writeln!(file, "{}", line).map_err(|e| format!("Failed to write {:?}: {}", log_path, e))?;
+
+    Ok(log_path)
+}
 
 fn format_size(bytes: u64, is_estimate: bool) -> String {
     if bytes == 0 {
@@ -38,9 +290,8 @@ fn format_size(bytes: u64, is_estimate: bool) -> String {
 pub async fn fetch_formats(
     app: AppHandle,
     url: String,
+    cookie_file: Option<String>,
 ) -> Result<FormatsResponse, String> {
-    let sidecar_command = app.shell().sidecar("yt-dlp").map_err(|e| e.to_string())?;
-
     let args = vec![
         "-J".to_string(),
         "--no-warnings".to_string(),
@@ -50,16 +301,11 @@ pub async fn fetch_formats(
         "ejs:github".to_string(),
         "--extractor-args".to_string(),
         "youtube:skip=dash".to_string(),
-        url,
     ];
 
-    let output = sidecar_command
-        .args(args)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+    let output = run_ytdlp_output(&app, &args, &url, cookie_file.as_deref()).await?;
 
-    if !output.status.success() {
+    if !output.success {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Failed to fetch formats: {}", stderr));
     }
@@ -168,7 +414,10 @@ pub async fn fetch_formats(
                     if !best_audio_format_id.is_empty() {
                         format!("({}+{})/best", format_id, best_audio_format_id)
                     } else {
-                        format!("(bv*[height<={}]+ba)/b[height<={}]", target_height, target_height)
+                        format!(
+                            "(bv*[height<={}]+ba)/b[height<={}]",
+                            target_height, target_height
+                        )
                     },
                     video_is_estimated || best_audio_is_estimated,
                 )
@@ -216,22 +465,17 @@ pub async fn fetch_formats(
 pub async fn fetch_playlist_info(
     app: AppHandle,
     url: String,
+    cookie_file: Option<String>,
 ) -> Result<PlaylistInfo, String> {
-    let sidecar_command = app.shell().sidecar("yt-dlp").map_err(|e| e.to_string())?;
     let args = vec![
         "-J".to_string(),
         "--flat-playlist".to_string(),
         "--no-warnings".to_string(),
-        url,
     ];
 
-    let output = sidecar_command
-        .args(args)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
+    let output = run_ytdlp_output(&app, &args, &url, cookie_file.as_deref()).await?;
 
-    if !output.status.success() {
+    if !output.success {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Failed to fetch playlist info: {}", stderr));
     }
@@ -292,13 +536,13 @@ pub async fn start_download(
     app: AppHandle,
     id: String,
     url: String,
+    title: String,
+    cookie_file: Option<String>,
     download_dir: String,
     format_string: String,
     subtitles: bool,
     use_aria2c: bool,
 ) -> Result<(), String> {
-    let sidecar_command = app.shell().sidecar("yt-dlp").map_err(|e| e.to_string())?;
-
     let ffmpeg_path = {
         let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
         let exe_dir = exe_path.parent().ok_or("Failed to get exe directory")?;
@@ -330,7 +574,10 @@ pub async fn start_download(
 
         match found_path {
             Some(path) => path,
-            None => exe_dir.join(ffmpeg_exe_simple).to_string_lossy().to_string(),
+            None => exe_dir
+                .join(ffmpeg_exe_simple)
+                .to_string_lossy()
+                .to_string(),
         }
     };
 
@@ -352,6 +599,8 @@ pub async fn start_download(
         "--newline".to_string(),
         "--no-update".to_string(),
         "--no-playlist".to_string(),
+        "--print".to_string(),
+        format!("before_dl:{}%(title)s", TITLE_MARKER),
         "--js-runtimes".to_string(),
         "node".to_string(),
         "--remote-components".to_string(),
@@ -394,7 +643,9 @@ pub async fn start_download(
         args.push("--downloader".to_string());
         args.push("aria2c".to_string());
         args.push("--downloader-args".to_string());
-        args.push("aria2c:-x16 -s16 -k1M --file-allocation=none --check-certificate=false".to_string());
+        args.push(
+            "aria2c:-x16 -s16 -k1M --file-allocation=none --check-certificate=false".to_string(),
+        );
     }
 
     let height_re = Regex::new(r"height<=(\d+)").unwrap();
@@ -421,12 +672,18 @@ pub async fn start_download(
 
     args.push("-N".to_string());
     args.push("4".to_string());
-    args.push(url);
-
-    let (mut rx, child) = sidecar_command
-        .args(args)
+    let initial_command = app.shell().sidecar("yt-dlp").map_err(|e| e.to_string())?;
+    let (rx, child) = match initial_command
+        .args(command_args(&args, &url, cookie_file.as_deref(), None))
         .spawn()
-        .map_err(|e| e.to_string())?;
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let error = error.to_string();
+            let _ = save_failed_download(&download_dir, &id, &title, &url, &error);
+            return Err(error);
+        }
+    };
 
     {
         let mut downloads = ACTIVE_DOWNLOADS.lock().map_err(|e| e.to_string())?;
@@ -435,11 +692,26 @@ pub async fn start_download(
 
     let app_clone = app.clone();
     let id_clone = id.clone();
+    let url_clone = url.clone();
+    let initial_title = title.clone();
+    let download_dir_for_log = download_dir.clone();
+    let base_args_for_retry = args.clone();
+    let cookie_sources = if is_youtube_url(&url) {
+        browser_cookie_sources()
+    } else {
+        Vec::new()
+    };
     let temp_dir_for_cleanup = download_temp_dir.clone();
 
     tokio::spawn(async move {
+        let mut rx = rx;
         let mut current_phase = "downloading".to_string();
         let mut download_count = 0;
+        let mut resolved_title = initial_title;
+        let mut error_lines: Vec<String> = Vec::new();
+        let mut saw_retryable_session_error = false;
+        let mut next_cookie_source = 0usize;
+        let mut browser_fallback_started = false;
 
         let re_progress = Regex::new(
             r"\[download\]\s+(\d+\.?\d*)%\s+of\s+(~?[\d.]+\s*[kKMGT]?i?B)\s+at\s+([\d.]+\s*[kKMGT]?i?B/s)\s+ETA\s+([\d:]+)"
@@ -457,236 +729,376 @@ pub async fn start_download(
             Regex::new(r"\[download\]\s+(\d+\.?\d*)%\s+of\s+(~?[\d.]+\s*[kKMGT]?i?B)").unwrap();
         let re_format_info = Regex::new(r"\[info\].*?:\s*Downloading.*?(video|audio)").unwrap();
         let re_merging = Regex::new(r"\[Merger\]|\[ffmpeg\].*Merging").unwrap();
-        let re_postprocess =
-            Regex::new(r"\[(ExtractAudio|EmbedSubtitle|EmbedThumbnail|Metadata|FixupM3u8|FixupM4a)\]").unwrap();
+        let re_postprocess = Regex::new(
+            r"\[(ExtractAudio|EmbedSubtitle|EmbedThumbnail|Metadata|FixupM3u8|FixupM4a)\]",
+        )
+        .unwrap();
         let re_destination = Regex::new(r"\[download\]\s+Destination:\s+(.+)").unwrap();
         let re_already_downloaded = Regex::new(r"has already been downloaded").unwrap();
 
-        while let Some(event) = rx.recv().await {
-            match event {
-                CommandEvent::Stdout(line) => {
-                    let line_str = String::from_utf8_lossy(&line).trim().to_string();
-                    if line_str.is_empty() {
-                        continue;
-                    }
-
-                    let is_progress_line = re_progress.is_match(&line_str)
-                        || re_progress_unknown.is_match(&line_str)
-                        || re_aria2c_progress.is_match(&line_str)
-                        || re_progress_simple.is_match(&line_str);
-
-                    if re_destination.is_match(&line_str) {
-                        download_count += 1;
-                        current_phase = if download_count == 1 {
-                            "video".to_string()
-                        } else {
-                            "audio".to_string()
-                        };
-                    }
-
-                    if let Some(caps) = re_format_info.captures(&line_str) {
-                        current_phase = caps[1].to_lowercase();
-                    }
-
-                    if re_merging.is_match(&line_str) {
-                        current_phase = "merging".to_string();
-                        let _ = app_clone.emit(
-                            "download-progress",
-                            DownloadProgress {
-                                id: id_clone.clone(),
-                                percentage: 99.0,
-                                size: String::new(),
-                                speed: String::new(),
-                                eta: String::new(),
-                                status: "downloading".to_string(),
-                                phase: "merging".to_string(),
-                            },
-                        );
-                    }
-
-                    if re_postprocess.is_match(&line_str) {
-                        current_phase = "processing".to_string();
-                        let _ = app_clone.emit(
-                            "download-progress",
-                            DownloadProgress {
-                                id: id_clone.clone(),
-                                percentage: 99.5,
-                                size: String::new(),
-                                speed: String::new(),
-                                eta: String::new(),
-                                status: "downloading".to_string(),
-                                phase: "processing".to_string(),
-                            },
-                        );
-                    }
-
-                    let adjusted_percent = |raw_percent: f32| -> f32 {
-                        if download_count > 1 {
-                            50.0 + (raw_percent * 0.45)
-                        } else if download_count == 1 {
-                            raw_percent * 0.5
-                        } else {
-                            raw_percent
+        'download: loop {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    CommandEvent::Stdout(line) => {
+                        let line_str = String::from_utf8_lossy(&line).trim().to_string();
+                        if line_str.is_empty() {
+                            continue;
                         }
-                    };
 
-                    if let Some(caps) = re_progress.captures(&line_str) {
-                        let _ = app_clone.emit(
-                            "download-progress",
-                            DownloadProgress {
-                                id: id_clone.clone(),
-                                percentage: adjusted_percent(
-                                    caps[1].parse::<f32>().unwrap_or(0.0),
-                                ),
-                                size: caps[2].trim().to_string(),
-                                speed: caps[3].trim().to_string(),
-                                eta: caps[4].trim().to_string(),
-                                status: "downloading".to_string(),
-                                phase: current_phase.clone(),
-                            },
-                        );
-                    } else if let Some(caps) = re_progress_unknown.captures(&line_str) {
-                        let _ = app_clone.emit(
-                            "download-progress",
-                            DownloadProgress {
-                                id: id_clone.clone(),
-                                percentage: adjusted_percent(
-                                    caps[1].parse::<f32>().unwrap_or(0.0),
-                                ),
-                                size: caps[2].trim().to_string(),
-                                speed: caps[3].trim().to_string(),
-                                eta: caps[4].trim().to_string(),
-                                status: "downloading".to_string(),
-                                phase: current_phase.clone(),
-                            },
-                        );
-                    } else if let Some(caps) = re_aria2c_progress.captures(&line_str) {
-                        let _ = app_clone.emit(
-                            "download-progress",
-                            DownloadProgress {
-                                id: id_clone.clone(),
-                                percentage: adjusted_percent(
-                                    caps[2].parse::<f32>().unwrap_or(0.0),
-                                ),
-                                size: caps[1].to_string(),
-                                speed: caps[3].to_string(),
-                                eta: caps[4].to_string(),
-                                status: "downloading".to_string(),
-                                phase: current_phase.clone(),
-                            },
-                        );
-                    } else if let Some(caps) = re_progress_simple.captures(&line_str) {
-                        let _ = app_clone.emit(
-                            "download-progress",
-                            DownloadProgress {
-                                id: id_clone.clone(),
-                                percentage: adjusted_percent(
-                                    caps[1].parse::<f32>().unwrap_or(0.0),
-                                ),
-                                size: caps[2].trim().to_string(),
-                                speed: "...".to_string(),
-                                eta: "...".to_string(),
-                                status: "downloading".to_string(),
-                                phase: current_phase.clone(),
-                            },
-                        );
-                    } else if let Some(caps) = re_destination.captures(&line_str) {
-                        let full_path = caps[1].trim();
-                        let filename = full_path
-                            .split(|c| c == '/' || c == '\\')
-                            .last()
-                            .unwrap_or(full_path);
-                        let _ = app_clone.emit(
-                            "download-title",
-                            serde_json::json!({
-                                "id": id_clone.clone(),
-                                "title": filename,
-                            }),
-                        );
-                    } else if re_already_downloaded.is_match(&line_str) {
-                        if let Some(start) = line_str.find("[download] ") {
-                            let rest = &line_str[start + 11..];
-                            if let Some(end) = rest.find(" has already") {
-                                let full_path = &rest[..end];
-                                let filename = full_path
-                                    .split(|c| c == '/' || c == '\\')
-                                    .last()
-                                    .unwrap_or(full_path);
+                        if let Some(title) = line_str.strip_prefix(TITLE_MARKER) {
+                            let title = title.trim();
+                            if !title.is_empty() {
+                                resolved_title = title.to_string();
                                 let _ = app_clone.emit(
                                     "download-title",
                                     serde_json::json!({
                                         "id": id_clone.clone(),
-                                        "title": filename,
+                                        "title": resolved_title.clone(),
                                     }),
                                 );
                             }
+                            continue;
+                        }
+
+                        if is_youtube_auth_challenge(&line_str) || is_cookie_source_error(&line_str)
+                        {
+                            saw_retryable_session_error = true;
+                        }
+
+                        let is_progress_line = re_progress.is_match(&line_str)
+                            || re_progress_unknown.is_match(&line_str)
+                            || re_aria2c_progress.is_match(&line_str)
+                            || re_progress_simple.is_match(&line_str);
+
+                        if re_destination.is_match(&line_str) {
+                            download_count += 1;
+                            current_phase = if download_count == 1 {
+                                "video".to_string()
+                            } else {
+                                "audio".to_string()
+                            };
+                        }
+
+                        if let Some(caps) = re_format_info.captures(&line_str) {
+                            current_phase = caps[1].to_lowercase();
+                        }
+
+                        if re_merging.is_match(&line_str) {
+                            current_phase = "merging".to_string();
+                            let _ = app_clone.emit(
+                                "download-progress",
+                                DownloadProgress {
+                                    id: id_clone.clone(),
+                                    percentage: 99.0,
+                                    size: String::new(),
+                                    speed: String::new(),
+                                    eta: String::new(),
+                                    status: "downloading".to_string(),
+                                    phase: "merging".to_string(),
+                                },
+                            );
+                        }
+
+                        if re_postprocess.is_match(&line_str) {
+                            current_phase = "processing".to_string();
+                            let _ = app_clone.emit(
+                                "download-progress",
+                                DownloadProgress {
+                                    id: id_clone.clone(),
+                                    percentage: 99.5,
+                                    size: String::new(),
+                                    speed: String::new(),
+                                    eta: String::new(),
+                                    status: "downloading".to_string(),
+                                    phase: "processing".to_string(),
+                                },
+                            );
+                        }
+
+                        let adjusted_percent = |raw_percent: f32| -> f32 {
+                            if download_count > 1 {
+                                50.0 + (raw_percent * 0.45)
+                            } else if download_count == 1 {
+                                raw_percent * 0.5
+                            } else {
+                                raw_percent
+                            }
+                        };
+
+                        if let Some(caps) = re_progress.captures(&line_str) {
+                            let _ = app_clone.emit(
+                                "download-progress",
+                                DownloadProgress {
+                                    id: id_clone.clone(),
+                                    percentage: adjusted_percent(
+                                        caps[1].parse::<f32>().unwrap_or(0.0),
+                                    ),
+                                    size: caps[2].trim().to_string(),
+                                    speed: caps[3].trim().to_string(),
+                                    eta: caps[4].trim().to_string(),
+                                    status: "downloading".to_string(),
+                                    phase: current_phase.clone(),
+                                },
+                            );
+                        } else if let Some(caps) = re_progress_unknown.captures(&line_str) {
+                            let _ = app_clone.emit(
+                                "download-progress",
+                                DownloadProgress {
+                                    id: id_clone.clone(),
+                                    percentage: adjusted_percent(
+                                        caps[1].parse::<f32>().unwrap_or(0.0),
+                                    ),
+                                    size: caps[2].trim().to_string(),
+                                    speed: caps[3].trim().to_string(),
+                                    eta: caps[4].trim().to_string(),
+                                    status: "downloading".to_string(),
+                                    phase: current_phase.clone(),
+                                },
+                            );
+                        } else if let Some(caps) = re_aria2c_progress.captures(&line_str) {
+                            let _ = app_clone.emit(
+                                "download-progress",
+                                DownloadProgress {
+                                    id: id_clone.clone(),
+                                    percentage: adjusted_percent(
+                                        caps[2].parse::<f32>().unwrap_or(0.0),
+                                    ),
+                                    size: caps[1].to_string(),
+                                    speed: caps[3].to_string(),
+                                    eta: caps[4].to_string(),
+                                    status: "downloading".to_string(),
+                                    phase: current_phase.clone(),
+                                },
+                            );
+                        } else if let Some(caps) = re_progress_simple.captures(&line_str) {
+                            let _ = app_clone.emit(
+                                "download-progress",
+                                DownloadProgress {
+                                    id: id_clone.clone(),
+                                    percentage: adjusted_percent(
+                                        caps[1].parse::<f32>().unwrap_or(0.0),
+                                    ),
+                                    size: caps[2].trim().to_string(),
+                                    speed: "...".to_string(),
+                                    eta: "...".to_string(),
+                                    status: "downloading".to_string(),
+                                    phase: current_phase.clone(),
+                                },
+                            );
+                        } else if let Some(caps) = re_destination.captures(&line_str) {
+                            let full_path = caps[1].trim();
+                            let filename = full_path
+                                .split(|c| c == '/' || c == '\\')
+                                .last()
+                                .unwrap_or(full_path);
+                            let _ = app_clone.emit(
+                                "download-title",
+                                serde_json::json!({
+                                    "id": id_clone.clone(),
+                                    "title": filename,
+                                }),
+                            );
+                        } else if re_already_downloaded.is_match(&line_str) {
+                            if let Some(start) = line_str.find("[download] ") {
+                                let rest = &line_str[start + 11..];
+                                if let Some(end) = rest.find(" has already") {
+                                    let full_path = &rest[..end];
+                                    let filename = full_path
+                                        .split(|c| c == '/' || c == '\\')
+                                        .last()
+                                        .unwrap_or(full_path);
+                                    let _ = app_clone.emit(
+                                        "download-title",
+                                        serde_json::json!({
+                                            "id": id_clone.clone(),
+                                            "title": filename,
+                                        }),
+                                    );
+                                }
+                            }
+                        }
+
+                        let lower_line = line_str.to_ascii_lowercase();
+                        let should_emit_log = !is_progress_line
+                            && (re_destination.is_match(&line_str)
+                                || re_merging.is_match(&line_str)
+                                || re_postprocess.is_match(&line_str)
+                                || re_already_downloaded.is_match(&line_str)
+                                || lower_line.contains("error")
+                                || lower_line.contains("warning")
+                                || lower_line.contains("failed"));
+
+                        if should_emit_log {
+                            if lower_line.contains("error")
+                                || lower_line.contains("warning")
+                                || lower_line.contains("failed")
+                            {
+                                error_lines.push(line_str.clone());
+                            }
+                            let _ = app_clone.emit(
+                                "download-log",
+                                serde_json::json!({
+                                    "id": id_clone.clone(),
+                                    "message": line_str,
+                                }),
+                            );
                         }
                     }
+                    CommandEvent::Stderr(line) => {
+                        let line_str = String::from_utf8_lossy(&line).trim().to_string();
+                        if line_str.is_empty() {
+                            continue;
+                        }
 
-                    let lower_line = line_str.to_ascii_lowercase();
-                    let should_emit_log = !is_progress_line
-                        && (re_destination.is_match(&line_str)
-                            || re_merging.is_match(&line_str)
-                            || re_postprocess.is_match(&line_str)
-                            || re_already_downloaded.is_match(&line_str)
+                        if is_youtube_auth_challenge(&line_str) || is_cookie_source_error(&line_str)
+                        {
+                            saw_retryable_session_error = true;
+                        }
+
+                        let is_progress_line = re_progress.is_match(&line_str)
+                            || re_progress_unknown.is_match(&line_str)
+                            || re_aria2c_progress.is_match(&line_str)
+                            || re_progress_simple.is_match(&line_str);
+                        let lower_line = line_str.to_ascii_lowercase();
+                        let should_emit_log = !is_progress_line
                             || lower_line.contains("error")
                             || lower_line.contains("warning")
-                            || lower_line.contains("failed"));
+                            || lower_line.contains("failed");
 
-                    if should_emit_log {
+                        if should_emit_log {
+                            error_lines.push(line_str.clone());
+                            let _ = app_clone.emit(
+                                "download-log",
+                                serde_json::json!({
+                                    "id": id_clone.clone(),
+                                    "message": line_str,
+                                    "is_error": true,
+                                }),
+                            );
+                        }
+                    }
+                    CommandEvent::Terminated(payload) => {
+                        let is_still_active = ACTIVE_DOWNLOADS
+                            .lock()
+                            .map(|downloads| downloads.contains_key(&id_clone))
+                            .unwrap_or(false);
+                        if !is_still_active {
+                            break 'download;
+                        }
+
+                        if payload.code != Some(0)
+                            && (saw_retryable_session_error || browser_fallback_started)
+                            && next_cookie_source < cookie_sources.len()
+                        {
+                            if let Some((cookie_spec, browser_label)) =
+                                cookie_sources.get(next_cookie_source)
+                            {
+                                browser_fallback_started = true;
+                                next_cookie_source += 1;
+                                saw_retryable_session_error = false;
+                                current_phase = "downloading".to_string();
+                                download_count = 0;
+
+                                let retry_message = format!(
+                                    "[dlp-gui] YouTube rejected the current session; trying {} cookies.",
+                                    browser_label
+                                );
+                                let _ = app_clone.emit(
+                                    "download-log",
+                                    serde_json::json!({
+                                        "id": id_clone.clone(),
+                                        "message": retry_message,
+                                    }),
+                                );
+
+                                match app_clone.shell().sidecar("yt-dlp") {
+                                    Ok(retry_command) => {
+                                        match retry_command
+                                            .args(command_args(
+                                                &base_args_for_retry,
+                                                &url_clone,
+                                                None,
+                                                Some(cookie_spec),
+                                            ))
+                                            .spawn()
+                                        {
+                                            Ok((retry_rx, retry_child)) => {
+                                                if let Ok(mut downloads) = ACTIVE_DOWNLOADS.lock() {
+                                                    downloads.insert(id_clone.clone(), retry_child);
+                                                }
+                                                rx = retry_rx;
+                                                continue 'download;
+                                            }
+                                            Err(error) => {
+                                                error_lines.push(format!(
+                                                    "Failed to retry with {} cookies: {}",
+                                                    browser_label, error
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    Err(error) => {
+                                        error_lines.push(error.to_string());
+                                    }
+                                }
+                            }
+                        }
+
+                        let status = if payload.code == Some(0) {
+                            "completed"
+                        } else {
+                            "error"
+                        };
+                        if status == "error" {
+                            let mut recent_errors = error_lines
+                                .iter()
+                                .rev()
+                                .take(25)
+                                .cloned()
+                                .collect::<Vec<_>>();
+                            recent_errors.reverse();
+                            let error_summary = recent_errors.join("\n");
+                            match save_failed_download(
+                                &download_dir_for_log,
+                                &id_clone,
+                                &resolved_title,
+                                &url_clone,
+                                &error_summary,
+                            ) {
+                                Ok(path) => {
+                                    let _ = app_clone.emit(
+                                    "download-log",
+                                    serde_json::json!({
+                                        "id": id_clone.clone(),
+                                        "message": format!("[dlp-gui] Failure saved to {}", path.to_string_lossy()),
+                                    }),
+                                );
+                                }
+                                Err(error) => {
+                                    let _ = app_clone.emit(
+                                    "download-log",
+                                    serde_json::json!({
+                                        "id": id_clone.clone(),
+                                        "message": format!("[dlp-gui] Could not save failure record: {}", error),
+                                        "is_error": true,
+                                    }),
+                                );
+                                }
+                            }
+                        }
                         let _ = app_clone.emit(
-                            "download-log",
+                            "download-status",
                             serde_json::json!({
                                 "id": id_clone.clone(),
-                                "message": line_str,
+                                "status": status,
                             }),
                         );
+                        break 'download;
                     }
+                    _ => {}
                 }
-                CommandEvent::Stderr(line) => {
-                    let line_str = String::from_utf8_lossy(&line).trim().to_string();
-                    if line_str.is_empty() {
-                        continue;
-                    }
-
-                    let is_progress_line = re_progress.is_match(&line_str)
-                        || re_progress_unknown.is_match(&line_str)
-                        || re_aria2c_progress.is_match(&line_str)
-                        || re_progress_simple.is_match(&line_str);
-                    let lower_line = line_str.to_ascii_lowercase();
-                    let should_emit_log = !is_progress_line
-                        || lower_line.contains("error")
-                        || lower_line.contains("warning")
-                        || lower_line.contains("failed");
-
-                    if should_emit_log {
-                        let _ = app_clone.emit(
-                            "download-log",
-                            serde_json::json!({
-                                "id": id_clone.clone(),
-                                "message": line_str,
-                                "is_error": true,
-                            }),
-                        );
-                    }
-                }
-                CommandEvent::Terminated(payload) => {
-                    let status = if payload.code == Some(0) {
-                        "completed"
-                    } else {
-                        "error"
-                    };
-                    let _ = app_clone.emit(
-                        "download-status",
-                        serde_json::json!({
-                            "id": id_clone.clone(),
-                            "status": status,
-                        }),
-                    );
-                    break;
-                }
-                _ => {}
             }
+            break;
         }
 
         if let Ok(mut downloads) = ACTIVE_DOWNLOADS.lock() {
@@ -702,10 +1114,7 @@ pub async fn start_download(
 }
 
 #[tauri::command]
-pub async fn cancel_download(
-    app: AppHandle,
-    id: String,
-) -> Result<(), String> {
+pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
     let child_opt = {
         let mut downloads = ACTIVE_DOWNLOADS.lock().map_err(|e| e.to_string())?;
         downloads.remove(&id)
@@ -782,4 +1191,53 @@ pub async fn open_folder(path: String) -> Result<(), String> {
 
     #[allow(unreachable_code)]
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_youtube_guest_session_errors() {
+        assert!(is_youtube_auth_challenge(
+            "ERROR: Sign in to confirm you're not a bot"
+        ));
+        assert!(is_youtube_auth_challenge(
+            "Unable to download webpage: HTTP Error 429: Too Many Requests"
+        ));
+        assert!(!is_youtube_auth_challenge(
+            "ERROR: requested format is not available"
+        ));
+    }
+
+    #[test]
+    fn failed_download_log_keeps_title_and_url() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "dlpgui-failure-log-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let title = "Learn The Ultimate Chess Opening || The Evans Gambit!";
+        let url = "https://www.youtube.com/watch?v=CUQQ4dym5ZU";
+        let path = save_failed_download(
+            temp_dir.to_str().unwrap(),
+            "test-id",
+            title,
+            url,
+            "test failure",
+        )
+        .unwrap();
+        let contents = std::fs::read_to_string(path).unwrap();
+        let record: serde_json::Value = serde_json::from_str(contents.trim()).unwrap();
+
+        assert_eq!(record["title"], title);
+        assert_eq!(record["url"], url);
+        assert_eq!(record["error"], "test failure");
+
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
 }

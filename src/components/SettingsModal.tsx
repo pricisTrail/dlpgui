@@ -1,9 +1,11 @@
 import {
   CheckCircle2,
   Download,
+  FileUp,
   Loader2,
   RefreshCw,
   Settings,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -27,6 +29,7 @@ interface SettingsModalProps {
   layoutPreset: "glass" | "notion";
   isDarkMode: boolean;
   useAria2c: boolean;
+  cookieFilePath: string;
   maxConcurrentDownloads: number;
   autoUpdateYtdlp: boolean;
   ytdlpVersion: string;
@@ -38,6 +41,8 @@ interface SettingsModalProps {
   interfacePresets: InterfacePreset[];
   onClose: () => void;
   onToggleAria2c: () => void;
+  onImportCookieFile: () => void;
+  onClearCookieFile: () => void;
   onMaxConcurrentDownloadsChange: (value: number) => void;
   onCheckUpdate: () => void;
   onUpdateYtdlp: () => void;
@@ -51,6 +56,7 @@ export function SettingsModal({
   layoutPreset,
   isDarkMode,
   useAria2c,
+  cookieFilePath,
   maxConcurrentDownloads,
   autoUpdateYtdlp,
   ytdlpVersion,
@@ -62,6 +68,8 @@ export function SettingsModal({
   interfacePresets,
   onClose,
   onToggleAria2c,
+  onImportCookieFile,
+  onClearCookieFile,
   onMaxConcurrentDownloadsChange,
   onCheckUpdate,
   onUpdateYtdlp,
@@ -73,6 +81,7 @@ export function SettingsModal({
 
   const isGlassLayout = layoutPreset === "glass";
   const isLightMode = !isDarkMode;
+  const cookieFileLabel = cookieFilePath.split(/[/\\]/).filter(Boolean).pop() || "";
 
   return (
     <div
@@ -426,6 +435,96 @@ export function SettingsModal({
                 tone={isLightMode ? "light" : "dark"}
                 size="sm"
               />
+            </div>
+
+            <div
+              className={cn(
+                "p-4 transition-colors",
+                isGlassLayout
+                  ? isLightMode
+                    ? "rounded-[1.35rem] border border-stone-300/80 bg-[#fcfaf7]"
+                    : "rounded-[1.35rem] border border-white/10 bg-zinc-950/45"
+                  : "rounded-lg border border-[#EAEAEA] dark:border-[#2A2A2A]",
+              )}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p
+                    className={cn(
+                      "text-sm font-medium",
+                      isGlassLayout
+                        ? isLightMode
+                          ? "text-stone-900"
+                          : "text-zinc-100"
+                        : "text-[#111111] dark:text-[#EDEDED]",
+                    )}
+                  >
+                    YouTube cookies
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 text-xs",
+                      isGlassLayout
+                        ? isLightMode
+                          ? "text-stone-600"
+                          : "text-zinc-400"
+                        : "text-[#787774] dark:text-[#888888]",
+                    )}
+                  >
+                    Import an optional Netscape cookies.txt file. If it is rejected, the app tries
+                    detected Firefox and Chromium-family profiles in sequence.
+                  </p>
+                  {cookieFilePath && (
+                    <p
+                      className={cn(
+                        "mt-2 truncate font-mono text-[11px]",
+                        isGlassLayout
+                          ? isLightMode
+                            ? "text-stone-700"
+                            : "text-zinc-300"
+                          : "text-[#55534E] dark:text-[#B8B8B8]",
+                      )}
+                      title={cookieFilePath}
+                    >
+                      {cookieFileLabel}
+                    </p>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onImportCookieFile}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-2 text-xs font-medium transition-colors",
+                      isGlassLayout
+                        ? isLightMode
+                          ? "border-stone-300 bg-white text-stone-800 hover:border-stone-500"
+                          : "border-white/10 bg-zinc-900 text-zinc-200 hover:border-zinc-500"
+                        : "border-[#D9D9D7] text-[#111111] hover:bg-[#F7F6F3] dark:border-[#3A3A3A] dark:text-[#EDEDED] dark:hover:bg-[#1F1F1F]",
+                    )}
+                  >
+                    <FileUp className="h-3.5 w-3.5" />
+                    {cookieFilePath ? "Replace" : "Import"}
+                  </button>
+                  {cookieFilePath && (
+                    <button
+                      type="button"
+                      onClick={onClearCookieFile}
+                      title="Clear imported cookies file"
+                      className={cn(
+                        "rounded-md border p-2 transition-colors",
+                        isGlassLayout
+                          ? isLightMode
+                            ? "border-stone-300 text-stone-600 hover:border-red-300 hover:text-red-700"
+                            : "border-white/10 text-zinc-400 hover:border-red-500/40 hover:text-red-300"
+                          : "border-[#D9D9D7] text-[#787774] hover:text-[#9F2F2D] dark:border-[#3A3A3A] dark:text-[#888888] dark:hover:text-[#E86B69]",
+                      )}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div

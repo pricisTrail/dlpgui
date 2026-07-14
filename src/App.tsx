@@ -52,7 +52,7 @@ function normalizeConcurrentDownloads(value: number) {
 }
 
 export default function App() {
-  const { minimizeWindow, toggleMaximizeWindow, closeWindow, quitApp, startWindowDrag } =
+  const { minimizeWindow, toggleMaximizeWindow, closeWindow, startWindowDrag } =
     useWindowControls();
   const {
     ytdlpVersion,
@@ -91,6 +91,9 @@ export default function App() {
     const saved = localStorage.getItem("useAria2c");
     return saved !== null ? JSON.parse(saved) : true;
   });
+  const [youtubeCookieFile, setYoutubeCookieFile] = useState(
+    () => localStorage.getItem("youtubeCookieFile") || "",
+  );
   const [maxConcurrentDownloads, setMaxConcurrentDownloads] = useState<number>(() => {
     const saved = localStorage.getItem("maxConcurrentDownloads");
     if (saved === null) return DEFAULT_CONCURRENT_DOWNLOADS;
@@ -376,13 +379,13 @@ export default function App() {
 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "w") {
         event.preventDefault();
-        void quitApp();
+        void closeWindow();
       }
     };
 
     window.addEventListener("keydown", handleWindowCloseShortcut);
     return () => window.removeEventListener("keydown", handleWindowCloseShortcut);
-  }, [quitApp]);
+  }, [closeWindow]);
 
   useEffect(() => {
     const savedPath = localStorage.getItem("downloadPath");
@@ -561,6 +564,8 @@ export default function App() {
       void invoke("start_download", {
         id: item.id,
         url: item.url,
+        title: item.title,
+        cookieFile: youtubeCookieFile || null,
         downloadDir: item.downloadDir || savePath,
         formatString: item.format || DEFAULT_FORMAT_STRING,
         subtitles: item.subtitles ?? false,
@@ -625,7 +630,7 @@ export default function App() {
           );
         });
     });
-  }, [downloads, maxConcurrentDownloads, savePath, useAria2c]);
+  }, [downloads, maxConcurrentDownloads, savePath, useAria2c, youtubeCookieFile]);
 
   useEffect(() => {
     if (!trimmedUrl || urlType !== "playlist" || trimmedUrl === lastFetchedUrl || isFetchingPlaylist) {
@@ -782,6 +787,24 @@ export default function App() {
     setIsProcessing(false);
   };
 
+  const importYoutubeCookies = async () => {
+    const selected = await open({
+      directory: false,
+      multiple: false,
+      filters: [{ name: "Netscape cookies", extensions: ["txt"] }],
+    });
+
+    if (selected && typeof selected === "string") {
+      setYoutubeCookieFile(selected);
+      localStorage.setItem("youtubeCookieFile", selected);
+    }
+  };
+
+  const clearYoutubeCookies = () => {
+    setYoutubeCookieFile("");
+    localStorage.removeItem("youtubeCookieFile");
+  };
+
   const queueScheduledDownloads = () => {
     if (!scheduledTime || urlLines.length === 0) return;
 
@@ -864,7 +887,10 @@ export default function App() {
     setFormatsError("");
 
     try {
-      const info = await invoke<PlaylistInfo>("fetch_playlist_info", { url: videoUrl });
+      const info = await invoke<PlaylistInfo>("fetch_playlist_info", {
+        url: videoUrl,
+        cookieFile: youtubeCookieFile || null,
+      });
       setPlaylistInfo(info);
       setLastFetchedUrl(videoUrl);
     } catch (error) {
@@ -1088,6 +1114,7 @@ export default function App() {
         layoutPreset={uiPreset}
         isDarkMode={isDarkMode}
         useAria2c={useAria2c}
+        cookieFilePath={youtubeCookieFile}
         maxConcurrentDownloads={maxConcurrentDownloads}
         autoUpdateYtdlp={autoUpdateYtdlp}
         ytdlpVersion={ytdlpVersion}
@@ -1099,6 +1126,10 @@ export default function App() {
         interfacePresets={interfacePresets}
         onClose={() => setIsSettingsOpen(false)}
         onToggleAria2c={() => setUseAria2c((value) => !value)}
+        onImportCookieFile={() => {
+          void importYoutubeCookies();
+        }}
+        onClearCookieFile={clearYoutubeCookies}
         onMaxConcurrentDownloadsChange={(value) =>
           setMaxConcurrentDownloads(normalizeConcurrentDownloads(value))
         }
