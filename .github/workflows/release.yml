@@ -28,6 +28,15 @@ jobs:
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
+      - name: setup Node for the local Cobalt engine
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: prepare and bundle the local Cobalt engine
+        shell: pwsh
+        run: ./scripts/prepare-cobalt.ps1 -BundleNode
+
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
 

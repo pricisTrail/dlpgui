@@ -7,8 +7,12 @@ use std::{
 
 use regex::Regex;
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::{process::CommandEvent, ShellExt};
+use tauri_plugin_shell::{
+    process::{CommandChild, CommandEvent},
+    ShellExt,
+};
 
+use crate::cobalt::{self, CobaltDownload};
 use crate::models::{
     DownloadProgress, FormatsResponse, PlaylistInfo, PlaylistVideo, QualityOption,
 };
@@ -16,6 +20,29 @@ use crate::state::ACTIVE_DOWNLOADS;
 
 const TITLE_MARKER: &str = "__DLPGUI_TITLE__";
 const FAILED_DOWNLOADS_LOG: &str = "dlp-gui-failed-downloads.jsonl";
+
+// A cancellation may arrive between an engine exiting and its replacement
+// starting. Never put a cancelled download back into the active map.
+fn replace_active_child(id: &str, child: CommandChild) -> bool {
+    if let Ok(mut downloads) = ACTIVE_DOWNLOADS.lock() {
+        if let Some(active) = downloads.get_mut(id) {
+            *active = child;
+            return true;
+        }
+    }
+    let _ = child.kill();
+    false
+}
+
+fn cleanup_download_temp_dir(download_dir: &str, temp_dir: &Path) {
+    if let (Ok(root), Ok(target)) = (std::fs::canonicalize(download_dir), temp_dir.canonicalize()) {
+        // Refuse to follow a redirected temp directory outside the chosen folder.
+        let allowed_parent = root.join("_dlpgui_temp");
+        if target.parent() == Some(allowed_parent.as_path()) {
+            let _ = std::fs::remove_dir_all(target);
+        }
+    }
+}
 
 struct YtDlpOutput {
     success: bool,
@@ -543,6 +570,13 @@ pub async fn start_download(
     subtitles: bool,
     use_aria2c: bool,
 ) -> Result<(), String> {
+    if id.is_empty()
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err("Invalid download ID".to_string());
+    }
     let ffmpeg_path = {
         let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
         let exe_dir = exe_path.parent().ok_or("Failed to get exe directory")?;
@@ -606,7 +640,7 @@ pub async fn start_download(
         "--remote-components".to_string(),
         "ejs:github".to_string(),
         "--ffmpeg-location".to_string(),
-        ffmpeg_path,
+        ffmpeg_path.clone(),
         "--no-keep-fragments".to_string(),
         "-P".to_string(),
         home_path,
@@ -672,16 +706,57 @@ pub async fn start_download(
 
     args.push("-N".to_string());
     args.push("4".to_string());
-    let initial_command = app.shell().sidecar("yt-dlp").map_err(|e| e.to_string())?;
-    let (rx, child) = match initial_command
-        .args(command_args(&args, &url, cookie_file.as_deref(), None))
-        .spawn()
-    {
-        Ok(result) => result,
+    let primary_attempt = app
+        .shell()
+        .sidecar("yt-dlp")
+        .map_err(|error| error.to_string())
+        .and_then(|command| {
+            command
+                .args(command_args(&args, &url, cookie_file.as_deref(), None))
+                .spawn()
+                .map_err(|error| error.to_string())
+        });
+    let (rx, child, using_cobalt) = match primary_attempt {
+        Ok((rx, child)) => (rx, child, false),
         Err(error) => {
-            let error = error.to_string();
-            let _ = save_failed_download(&download_dir, &id, &title, &url, &error);
-            return Err(error);
+            let _ = app.emit(
+                "download-log",
+                serde_json::json!({
+                    "id": id,
+                    "message": "[dlp-gui] yt-dlp could not start; trying the local Cobalt engine.",
+                }),
+            );
+            let fallback = cobalt::command(
+                &app,
+                CobaltDownload {
+                    url: &url,
+                    title: &title,
+                    download_dir: &download_dir,
+                    temp_dir: &download_temp_dir,
+                    format_string: &format_string,
+                    subtitles,
+                    ffmpeg_path: &ffmpeg_path,
+                },
+            )
+            .and_then(|command| command.spawn().map_err(|error| error.to_string()));
+            match fallback {
+                Ok((rx, child)) => (rx, child, true),
+                Err(fallback_error) => {
+                    let error = format!(
+                        "yt-dlp could not start: {}\nLocal Cobalt could not start: {}",
+                        error, fallback_error
+                    );
+                    let _ = save_failed_download(&download_dir, &id, &title, &url, &error);
+                    let _ = app.emit(
+                        "download-log",
+                        serde_json::json!({
+                            "id": id, "message": error, "is_error": true,
+                        }),
+                    );
+                    cleanup_download_temp_dir(&download_dir, &download_temp_dir);
+                    return Err(error);
+                }
+            }
         }
     };
 
@@ -705,6 +780,7 @@ pub async fn start_download(
 
     tokio::spawn(async move {
         let mut rx = rx;
+        let mut using_cobalt = using_cobalt;
         let mut current_phase = "downloading".to_string();
         let mut download_count = 0;
         let mut resolved_title = initial_title;
@@ -920,7 +996,8 @@ pub async fn start_download(
 
                         let lower_line = line_str.to_ascii_lowercase();
                         let should_emit_log = !is_progress_line
-                            && (re_destination.is_match(&line_str)
+                            && (lower_line.starts_with("[dlp-gui]")
+                                || re_destination.is_match(&line_str)
                                 || re_merging.is_match(&line_str)
                                 || re_postprocess.is_match(&line_str)
                                 || re_already_downloaded.is_match(&line_str)
@@ -987,6 +1064,7 @@ pub async fn start_download(
                         }
 
                         if payload.code != Some(0)
+                            && !using_cobalt
                             && (saw_retryable_session_error || browser_fallback_started)
                             && next_cookie_source < cookie_sources.len()
                         {
@@ -1023,8 +1101,8 @@ pub async fn start_download(
                                             .spawn()
                                         {
                                             Ok((retry_rx, retry_child)) => {
-                                                if let Ok(mut downloads) = ACTIVE_DOWNLOADS.lock() {
-                                                    downloads.insert(id_clone.clone(), retry_child);
+                                                if !replace_active_child(&id_clone, retry_child) {
+                                                    break 'download;
                                                 }
                                                 rx = retry_rx;
                                                 continue 'download;
@@ -1040,6 +1118,61 @@ pub async fn start_download(
                                     Err(error) => {
                                         error_lines.push(error.to_string());
                                     }
+                                }
+                            }
+                        }
+
+                        if payload.code != Some(0) && !using_cobalt {
+                            using_cobalt = true;
+                            let _ = app_clone.emit("download-log", serde_json::json!({
+                                "id": id_clone,
+                                "message": "[dlp-gui] yt-dlp retries failed; trying local Cobalt with the same quality.",
+                            }));
+                            let fallback = cobalt::command(
+                                &app_clone,
+                                CobaltDownload {
+                                    url: &url_clone,
+                                    title: &resolved_title,
+                                    download_dir: &download_dir_for_log,
+                                    temp_dir: &temp_dir_for_cleanup,
+                                    format_string: &format_string,
+                                    subtitles,
+                                    ffmpeg_path: &ffmpeg_path,
+                                },
+                            )
+                            .and_then(|command| command.spawn().map_err(|error| error.to_string()));
+                            match fallback {
+                                Ok((fallback_rx, fallback_child)) => {
+                                    if !replace_active_child(&id_clone, fallback_child) {
+                                        break 'download;
+                                    }
+                                    rx = fallback_rx;
+                                    current_phase = "downloading".to_string();
+                                    download_count = 0;
+                                    let _ = app_clone.emit(
+                                        "download-progress",
+                                        DownloadProgress {
+                                            id: id_clone.clone(),
+                                            percentage: 0.0,
+                                            speed: String::new(),
+                                            eta: String::new(),
+                                            size: String::new(),
+                                            status: "downloading".to_string(),
+                                            phase: current_phase.clone(),
+                                        },
+                                    );
+                                    continue 'download;
+                                }
+                                Err(error) => {
+                                    let message =
+                                        format!("Local Cobalt could not start: {}", error);
+                                    error_lines.push(message.clone());
+                                    let _ = app_clone.emit(
+                                        "download-log",
+                                        serde_json::json!({
+                                            "id": id_clone, "message": message, "is_error": true,
+                                        }),
+                                    );
                                 }
                             }
                         }
@@ -1105,9 +1238,7 @@ pub async fn start_download(
             downloads.remove(&id_clone);
         }
 
-        if temp_dir_for_cleanup.exists() {
-            let _ = std::fs::remove_dir_all(&temp_dir_for_cleanup);
-        }
+        cleanup_download_temp_dir(&download_dir_for_log, &temp_dir_for_cleanup);
     });
 
     Ok(())
@@ -1121,30 +1252,7 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
     };
 
     if let Some(child) = child_opt {
-        let pid = child.pid();
-
-        #[cfg(target_os = "windows")]
-        {
-            let output = std::process::Command::new("taskkill")
-                .args(["/F", "/T", "/PID", &pid.to_string()])
-                .output();
-
-            match output {
-                Ok(result) => {
-                    if !result.status.success() {
-                        let _ = child.kill();
-                    }
-                }
-                Err(_) => {
-                    let _ = child.kill();
-                }
-            }
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            let _ = child.kill();
-        }
+        stop_download_process(child);
     }
 
     let _ = app.emit(
@@ -1156,6 +1264,48 @@ pub async fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
     );
 
     Ok(())
+}
+
+fn stop_download_process(child: CommandChild) {
+    let pid = child.pid();
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .output();
+
+        match output {
+            Ok(result) => {
+                if !result.status.success() {
+                    let _ = child.kill();
+                }
+            }
+            Err(_) => {
+                let _ = child.kill();
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = child.kill();
+    }
+}
+
+pub fn shutdown_downloads() {
+    let children = ACTIVE_DOWNLOADS
+        .lock()
+        .map(|mut downloads| {
+            downloads
+                .drain()
+                .map(|(_, child)| child)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for child in children {
+        stop_download_process(child);
+    }
 }
 
 #[tauri::command]
